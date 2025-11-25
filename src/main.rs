@@ -1,8 +1,17 @@
 use iced::{Task, Element, Length, Theme, Border, border, Color};
-use iced::widget::{text, container, column, row, button, mouse_area, svg};
+use iced::widget::{self, text, container, column, row, button, mouse_area, svg, text_input};
 
 struct TutoringManager {
     current_screen: Screen,
+    state: State,
+}
+
+struct State {
+    // Dashboard
+    
+    // StudentManager
+    search_query: String,
+    show_add_student_modal: bool,
 }
 
 impl TutoringManager {
@@ -10,6 +19,10 @@ impl TutoringManager {
         (
             Self {
                 current_screen: Screen::Dashboard,
+                state: State {
+                    search_query: String::new(),
+                    show_add_student_modal: false,
+                },
             },
             Task::none()
         )
@@ -19,13 +32,18 @@ impl TutoringManager {
         String::from("Tutor Manager")
     }
 
-    fn update(&mut self, message: Message) {
+    fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::NavigateToScreen(menu_item) => {
                 self.current_screen = match menu_item {
                     SideMenuItem::Dashboard => Screen::Dashboard,
                     SideMenuItem::StudentManager => Screen::StudentManager,
-                }
+                };
+                Task::none()
+            }
+            Message::ShowAddStudentModal => {
+                self.state.show_add_student_modal = true;
+                widget::focus_next()
             }
         }
     }
@@ -45,9 +63,9 @@ impl TutoringManager {
                     mouse_area(dash_icon).on_press(Message::NavigateToScreen(SideMenuItem::Dashboard)),
                     mouse_area(student_icon).on_press(Message::NavigateToScreen(SideMenuItem::StudentManager)),
                 ]
-                .spacing(15)
+                .spacing(20)
             )
-            .padding(20)
+            .padding([250, 20])
             .width(70)
             .height(Length::Fill)
             .style(|theme: &Theme| {
@@ -64,13 +82,43 @@ impl TutoringManager {
                     ..Default::default()
                 }
             });
+
+        let student_page =  {
+            let page_title_text = text!("Student Manager")
+                .size(20);
+            let page_title = row![page_title_text];
+
+            let search_bar = text_input("Search students", &self.state.search_query);
+            let add_button = button(text!("add")).on_press(Message::ShowAddStudentModal);
+
+            let action_bar = 
+                row![search_bar, add_button]
+                    .spacing(20);
+            if self.state.show_add_student_modal {
+                let modal = container(
+                    column![
+                        row![text!("Modal open")],
+                    ]
+                );
+
+                modal
+            } else {
+                container(
+                    column![page_title, action_bar]
+                        .spacing(15)
+                )
+            }
+        };
+
         let main_area = {
             match self.current_screen {
                 Screen::Dashboard => {
                     container(text!("Dashboard"))
+                        .padding(20)
                 }
                 Screen::StudentManager => {
-                    container(text!("Student manager"))
+                    container(student_page)
+                        .padding(20)
                 }
             }
         };
@@ -111,6 +159,9 @@ fn main() -> iced::Result {
 #[derive(Debug, Clone)]
 enum Message {
     NavigateToScreen(SideMenuItem),
+
+    // Student Manager
+    ShowAddStudentModal,
 }
 
 struct Student {

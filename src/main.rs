@@ -1,5 +1,6 @@
-use iced::{Task, Element, Length, Theme, Border, border, Color};
-use iced::widget::{self, text, container, column, row, button, mouse_area, svg, text_input};
+use iced::border::width;
+use iced::{Task, Element, Length, Theme, Border, Center};
+use iced::widget::{text, container, column, row, button, mouse_area, svg, text_input, focus_next, stack};
 
 struct TutoringManager {
     current_screen: Screen,
@@ -43,7 +44,7 @@ impl TutoringManager {
             }
             Message::ShowAddStudentModal => {
                 self.state.show_add_student_modal = true;
-                widget::focus_next()
+                focus_next()
             }
         }
     }
@@ -83,30 +84,36 @@ impl TutoringManager {
                 }
             });
 
-        let student_page =  {
+        let student_page: Element<Message> =  {
             let page_title_text = text!("Student Manager")
                 .size(20);
             let page_title = row![page_title_text];
 
             let search_bar = text_input("Search students", &self.state.search_query);
             let add_button = button(text!("add")).on_press(Message::ShowAddStudentModal);
-
             let action_bar = 
                 row![search_bar, add_button]
                     .spacing(20);
-            if self.state.show_add_student_modal {
-                let modal = container(
-                    column![
-                        row![text!("Modal open")],
-                    ]
-                );
 
-                modal
-            } else {
+            let main_container = 
                 container(
                     column![page_title, action_bar]
                         .spacing(15)
                 )
+                    .width(Length::Fill)
+                    .height(Length::Fill);
+
+            if self.state.show_add_student_modal {
+                modal(main_container.into(), || {
+                    container(
+                        column![
+                            row![text!("Modal open")],
+                        ]
+                    ).into()
+                })
+                .into()
+            } else {
+                main_container.into()
             }
         };
 
@@ -164,6 +171,33 @@ enum Message {
     ShowAddStudentModal,
 }
 
+// CUSTOM COMPONENTS
+fn modal<'a, Message: 'a>(
+    bg_content: Element<'a, Message>,
+    modal_content: impl FnOnce() -> Element<'a, Message>,
+) -> Element<'a, Message> {
+    let modal_box = container(modal_content())
+        .width(Length::Fill)
+        .height(Length::Fill);
+
+    let overlay = container(modal_box)
+        .width(Length::Fixed(400.0))
+        .height(Length::Fixed(500.0))
+        .style(|_theme: &Theme| container::Style {
+            background: Some(iced::Background::Color(iced::Color::from_rgba(0.0, 0.0, 0.0, 0.5))),
+            ..Default::default()
+        });
+
+    let modal = container(overlay)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(Center)
+        .align_y(Center);
+
+    stack![bg_content, modal].into()
+}
+
+// DOMAIN MODELS
 struct Student {
     name: PersonalName,
     session_data: SessionData,

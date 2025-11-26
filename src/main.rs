@@ -1,5 +1,8 @@
 use iced::{Task, Element, Length, Theme, Border, Center};
-use iced::widget::{text, container, column, row, button, mouse_area, svg, text_input, focus_next, stack};
+use iced::widget::{
+    text, container, column, row, button, mouse_area, svg, text_input, focus_next, stack,
+    horizontal_rule,
+};
 
 struct TutoringManager {
     current_screen: Screen,
@@ -61,6 +64,10 @@ impl TutoringManager {
             svg(concat!(env!("CARGO_MANIFEST_DIR"), "/resources/icons/school_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"))
                 .width(25)
                 .height(25);
+        let add_student_icon = 
+            svg(concat!(env!("CARGO_MANIFEST_DIR"), "/resources/icons/add_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"))
+                .width(25)
+                .height(25);
         let side_menu = 
             container(
                 column![
@@ -92,16 +99,42 @@ impl TutoringManager {
                 .size(20);
             let page_title = row![page_title_text];
 
-            let search_bar = text_input("Search students", &self.state.search_query);
-            let add_button = button(text!("add")).on_press(Message::ShowAddStudentModal);
+            let search_bar = container(text_input("Search students", &self.state.search_query));
+            let add_button = button(add_student_icon).on_press(Message::ShowAddStudentModal);
             let action_bar = 
                 row![search_bar, add_button]
-                    .spacing(20);
+                    .spacing(100);
+            let card_container = {
+                let student1 = container(
+                    column![
+                        text!("Mary Jane"),
+                        horizontal_rule(1),
+                        row![text!("Subject(s):"), text!("Extended Mathematics")]
+                    ]
+                )
+                    .style(|theme: &Theme| {
+                        let palette = theme.extended_palette();
+
+                        container::Style { 
+                            border: Border {
+                                color: palette.background.strong.color,
+                                width: 1.0,
+                                radius: 1.0.into(),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        }
+                    });
+
+                container(
+                    row![student1,]
+                )
+            };
 
             let main_container = 
                 container(
-                    column![page_title, action_bar]
-                        .spacing(15)
+                    column![page_title, action_bar, card_container]
+                        .spacing(30)
                 )
                     .width(Length::Fill)
                     .height(Length::Fill);
@@ -111,7 +144,7 @@ impl TutoringManager {
                     container(
                         column![
                             row![text!("Modal open")],
-                            button(text!("Close modal")).on_press(Message::HideAddStudentModal),
+                            button(text!("Close modal")).on_press(Message::CloseAddStudentModal),
                         ]
                     ).into()
                 })

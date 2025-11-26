@@ -1,4 +1,3 @@
-use iced::border::width;
 use iced::{Task, Element, Length, Theme, Border, Center};
 use iced::widget::{text, container, column, row, button, mouse_area, svg, text_input, focus_next, stack};
 
@@ -45,6 +44,10 @@ impl TutoringManager {
             Message::ShowAddStudentModal => {
                 self.state.show_add_student_modal = true;
                 focus_next()
+            }
+            Message::CloseAddStudentModal => {
+                self.state.show_add_student_modal = false;
+                Task::none()
             }
         }
     }
@@ -108,6 +111,7 @@ impl TutoringManager {
                     container(
                         column![
                             row![text!("Modal open")],
+                            button(text!("Close modal")).on_press(Message::HideAddStudentModal),
                         ]
                     ).into()
                 })
@@ -169,6 +173,7 @@ enum Message {
 
     // Student Manager
     ShowAddStudentModal,
+    CloseAddStudentModal,
 }
 
 // CUSTOM COMPONENTS

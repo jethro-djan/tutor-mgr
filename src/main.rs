@@ -1,8 +1,8 @@
-use iced::{Task, Element, Length, Theme, Border, Center};
 use iced::widget::{
-    text, container, column, row, button, mouse_area, svg, text_input, focus_next, stack,
-    horizontal_rule,
+    button, column, container, focus_next, horizontal_rule, mouse_area, row, stack, svg, text,
+    text_input,
 };
+use iced::{Border, Center, Element, Length, Task, Theme};
 
 struct TutoringManager {
     current_screen: Screen,
@@ -11,7 +11,7 @@ struct TutoringManager {
 
 struct State {
     // Dashboard
-    
+
     // StudentManager
     search_query: String,
     show_add_student_modal: bool,
@@ -27,7 +27,7 @@ impl TutoringManager {
                     show_add_student_modal: false,
                 },
             },
-            Task::none()
+            Task::none(),
         )
     }
 
@@ -56,97 +56,179 @@ impl TutoringManager {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let dash_icon = 
-            svg(concat!(env!("CARGO_MANIFEST_DIR"), "/resources/icons/dashboard_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"))
-                .width(25)
-                .height(25);
-        let student_icon = 
-            svg(concat!(env!("CARGO_MANIFEST_DIR"), "/resources/icons/school_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"))
-                .width(25)
-                .height(25);
-        let add_student_icon = 
-            svg(concat!(env!("CARGO_MANIFEST_DIR"), "/resources/icons/add_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"))
-                .width(25)
-                .height(25);
-        let side_menu = 
-            container(
-                column![
-                    mouse_area(dash_icon).on_press(Message::NavigateToScreen(SideMenuItem::Dashboard)),
-                    mouse_area(student_icon).on_press(Message::NavigateToScreen(SideMenuItem::StudentManager)),
-                ]
-                .spacing(20)
-            )
-            .padding([250, 20])
-            .width(70)
-            .height(Length::Fill)
-            .style(|theme: &Theme| {
-                let palette = theme.extended_palette();
+        let dash_icon = svg(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/icons/dashboard_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"
+        ))
+        .width(25)
+        .height(25);
+        let student_icon = svg(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/icons/school_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"
+        ))
+        .width(25)
+        .height(25);
+        let plus_handle = svg::Handle::from_path(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/icons/add_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"
+        ));
+        let plus_icon = svg::Svg::new(plus_handle.clone()).width(25).height(25);
+        let edit_handle = svg::Handle::from_path(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/icons/pen-to-square-regular-full.svg"
+        ));
+        let edit_icon = svg::Svg::new(edit_handle.clone()).width(20).height(20);
 
-                container::Style { 
-                    background: Some(palette.background.weak.color.into()),
-                    border: Border {
-                        color: palette.background.strong.color,
-                        width: 1.0,
-                        radius: 0.0.into(),
-                        ..Default::default()
-                    },
+        let side_menu = container(
+            column![
+                mouse_area(dash_icon).on_press(Message::NavigateToScreen(SideMenuItem::Dashboard)),
+                mouse_area(student_icon)
+                    .on_press(Message::NavigateToScreen(SideMenuItem::StudentManager)),
+            ]
+            .spacing(20),
+        )
+        .padding([250, 20])
+        .width(70)
+        .height(Length::Fill)
+        .style(|theme: &Theme| {
+            let palette = theme.extended_palette();
+
+            container::Style {
+                background: Some(palette.background.weak.color.into()),
+                border: Border {
+                    color: palette.background.strong.color,
+                    width: 1.0,
+                    radius: 0.0.into(),
                     ..Default::default()
-                }
-            });
+                },
+                ..Default::default()
+            }
+        });
 
-        let student_page: Element<Message> =  {
-            let page_title_text = text!("Student Manager")
-                .size(20);
+        let student_page: Element<Message> = {
+            let page_title_text = text!("Student Manager").size(20);
             let page_title = row![page_title_text];
 
             let search_bar = container(text_input("Search students", &self.state.search_query));
-            let add_button = button(add_student_icon).on_press(Message::ShowAddStudentModal);
-            let action_bar = 
-                row![search_bar, add_button]
-                    .spacing(100);
+            let add_button = button(plus_icon).on_press(Message::ShowAddStudentModal);
+            let action_bar = row![search_bar, add_button].spacing(100);
             let card_container = {
-                let student1 = container(
-                    column![
-                        text!("Mary Jane"),
-                        horizontal_rule(1),
-                        row![text!("Subject(s):"), text!("Extended Mathematics")]
+                let student1 = container(column![
+                    text!("Mary Jane"),
+                    horizontal_rule(1),
+                    row![
+                        text("Subject(s):").width(Length::Fixed(120.0)),
+                        text!("Extended Mathematics")
                     ]
-                )
-                    .style(|theme: &Theme| {
-                        let palette = theme.extended_palette();
+                    .spacing(60),
+                    row![
+                        text("Schedule:").width(Length::Fixed(120.0)),
+                        column![text!("Tue 5:30 PM"), text!("Thu 5:30 PM")].spacing(2)
+                    ]
+                    .spacing(60),
+                    row![
+                        text("Next session:").width(Length::Fixed(120.0)),
+                        text!("Friday, Nov 18")
+                    ]
+                    .spacing(60),
+                    container(
+                        row![
+                            container(mouse_area(row![
+                                svg::Svg::new(plus_handle.clone()).width(20).height(20),
+                                text("Add session").size(14)
+                            ]))
+                            .align_left(Length::Fill),
+                            container(mouse_area(row![
+                                svg::Svg::new(edit_handle.clone()).width(20).height(20),
+                                text("Edit").size(14)
+                            ]))
+                            .align_right(Length::Fill)
+                        ]
+                        .spacing(50),
+                    )
+                    .align_bottom(Length::Fill)
+                ])
+                .width(Length::Fixed(400.0))
+                .height(Length::Fixed(200.0))
+                .padding([10, 20])
+                .style(|theme: &Theme| {
+                    let palette = theme.extended_palette();
 
-                        container::Style { 
-                            border: Border {
-                                color: palette.background.strong.color,
-                                width: 1.0,
-                                radius: 1.0.into(),
-                                ..Default::default()
-                            },
+                    container::Style {
+                        border: Border {
+                            color: palette.background.strong.color,
+                            width: 1.5,
+                            radius: 10.0.into(),
                             ..Default::default()
-                        }
-                    });
+                        },
+                        ..Default::default()
+                    }
+                });
 
-                container(
-                    row![student1,]
-                )
+                let student2 = container(column![
+                    text!("Peter Parker"),
+                    horizontal_rule(1),
+                    row![
+                        text("Subject(s):").width(Length::Fixed(120.0)),
+                        text!("Additional Mathematics")
+                    ]
+                    .spacing(60),
+                    row![
+                        text("Schedule:").width(Length::Fixed(120.0)),
+                        column![text!("Tue 5:30 PM"), text!("Thu 5:30 PM")].spacing(2)
+                    ]
+                    .spacing(60),
+                    row![
+                        text("Next session:").width(Length::Fixed(120.0)),
+                        text!("Thursday, Nov 17")
+                    ]
+                    .spacing(60),
+                    container(
+                        row![
+                            container(mouse_area(row![
+                                svg::Svg::new(plus_handle.clone()).width(20).height(20),
+                                text("Add session").size(14)
+                            ]))
+                            .align_left(Length::Fill),
+                            container(mouse_area(row![edit_icon, text("Edit").size(14)]))
+                                .align_right(Length::Fill)
+                        ]
+                        .spacing(50),
+                    )
+                    .align_bottom(Length::Fill)
+                ])
+                .width(Length::Fixed(400.0))
+                .height(Length::Fixed(200.0))
+                .padding([10, 20])
+                .style(|theme: &Theme| {
+                    let palette = theme.extended_palette();
+
+                    container::Style {
+                        border: Border {
+                            color: palette.background.strong.color,
+                            width: 1.5,
+                            radius: 10.0.into(),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }
+                });
+
+                container(row![student1, student2].spacing(10))
             };
 
-            let main_container = 
-                container(
-                    column![page_title, action_bar, card_container]
-                        .spacing(30)
-                )
+            let main_container =
+                container(column![page_title, action_bar, card_container].spacing(30))
                     .width(Length::Fill)
                     .height(Length::Fill);
 
             if self.state.show_add_student_modal {
                 modal(main_container.into(), || {
-                    container(
-                        column![
-                            row![text!("Modal open")],
-                            button(text!("Close modal")).on_press(Message::CloseAddStudentModal),
-                        ]
-                    ).into()
+                    container(column![
+                        row![text!("Modal open")],
+                        button(text!("Close modal")).on_press(Message::CloseAddStudentModal),
+                    ])
+                    .into()
                 })
                 .into()
             } else {
@@ -156,27 +238,13 @@ impl TutoringManager {
 
         let main_area = {
             match self.current_screen {
-                Screen::Dashboard => {
-                    container(text!("Dashboard"))
-                        .padding(20)
-                }
-                Screen::StudentManager => {
-                    container(student_page)
-                        .padding(20)
-                }
+                Screen::Dashboard => container(text!("Dashboard")).padding(20),
+                Screen::StudentManager => container(student_page).padding(20),
             }
         };
 
-        container(
-            row![
-                side_menu, 
-                main_area
-            ]
-            .spacing(20)
-        )
-        .into()
+        container(row![side_menu, main_area].spacing(20)).into()
     }
-
 }
 
 #[derive(Debug)]
@@ -193,9 +261,9 @@ enum SideMenuItem {
 
 fn main() -> iced::Result {
     iced::application(
-        TutoringManager::title, 
-        TutoringManager::update, 
-        TutoringManager::view
+        TutoringManager::title,
+        TutoringManager::update,
+        TutoringManager::view,
     )
     .run_with(TutoringManager::new)
 }
@@ -222,7 +290,9 @@ fn modal<'a, Message: 'a>(
         .width(Length::Fixed(400.0))
         .height(Length::Fixed(500.0))
         .style(|_theme: &Theme| container::Style {
-            background: Some(iced::Background::Color(iced::Color::from_rgba(0.0, 0.0, 0.0, 0.5))),
+            background: Some(iced::Background::Color(iced::Color::from_rgba(
+                0.0, 0.0, 0.0, 0.5,
+            ))),
             ..Default::default()
         });
 

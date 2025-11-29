@@ -1,8 +1,9 @@
 use iced::widget::{
-    button, column, container, focus_next, horizontal_rule, mouse_area, row, stack, svg, text,
-    text_input,
+    Column, Row, button, column, container, focus_next, horizontal_rule, mouse_area, row, stack,
+    svg, text, text_input,
 };
 use iced::{Border, Center, Element, Length, Task, Theme};
+use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Weekday};
 
 struct TutoringManager {
     current_screen: Screen,
@@ -15,6 +16,7 @@ struct State {
     // StudentManager
     search_query: String,
     show_add_student_modal: bool,
+    students: Vec<Student>,
 }
 
 impl TutoringManager {
@@ -25,6 +27,7 @@ impl TutoringManager {
                 state: State {
                     search_query: String::new(),
                     show_add_student_modal: false,
+                    students: mock_data(),
                 },
             },
             Task::none(),
@@ -77,7 +80,7 @@ impl TutoringManager {
             env!("CARGO_MANIFEST_DIR"),
             "/resources/icons/pen-to-square-regular-full.svg"
         ));
-        let edit_icon = svg::Svg::new(edit_handle.clone()).width(20).height(20);
+        // let edit_icon = svg::Svg::new(edit_handle.clone()).width(20).height(20);
 
         let side_menu = container(
             column![
@@ -113,108 +116,141 @@ impl TutoringManager {
             let add_button = button(plus_icon).on_press(Message::ShowAddStudentModal);
             let action_bar = row![search_bar, add_button].spacing(100);
             let card_container = {
-                let student1 = container(column![
-                    text!("Mary Jane"),
-                    horizontal_rule(1),
-                    row![
-                        text("Subject(s):").width(Length::Fixed(120.0)),
-                        text!("Extended Mathematics")
-                    ]
-                    .spacing(60),
-                    row![
-                        text("Schedule:").width(Length::Fixed(120.0)),
-                        column![text!("Tue 5:30 PM"), text!("Thu 5:30 PM")].spacing(2)
-                    ]
-                    .spacing(60),
-                    row![
-                        text("Next session:").width(Length::Fixed(120.0)),
-                        text!("Friday, Nov 18")
-                    ]
-                    .spacing(60),
-                    container(
+                let students = self.state.students.iter().map(|student| {
+                    container(column![
+                        text(format!("{} {}", student.name.first, student.name.last)),
+                        horizontal_rule(1),
                         row![
-                            container(mouse_area(row![
-                                svg::Svg::new(plus_handle.clone()).width(20).height(20),
-                                text("Add session").size(14)
-                            ]))
-                            .align_left(Length::Fill),
-                            container(mouse_area(row![
-                                svg::Svg::new(edit_handle.clone()).width(20).height(20),
-                                text("Edit").size(14)
-                            ]))
-                            .align_right(Length::Fill)
+                            text("Subject(s):").width(Length::Fixed(120.0)),
+                            text(student.subject.as_str()),
                         ]
-                        .spacing(50),
-                    )
-                    .align_bottom(Length::Fill)
-                ])
-                .width(Length::Fixed(400.0))
-                .height(Length::Fixed(200.0))
-                .padding([10, 20])
-                .style(|theme: &Theme| {
-                    let palette = theme.extended_palette();
-
-                    container::Style {
-                        border: Border {
-                            color: palette.background.strong.color,
-                            width: 1.5,
-                            radius: 10.0.into(),
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    }
-                });
-
-                let student2 = container(column![
-                    text!("Peter Parker"),
-                    horizontal_rule(1),
-                    row![
-                        text("Subject(s):").width(Length::Fixed(120.0)),
-                        text!("Additional Mathematics")
-                    ]
-                    .spacing(60),
-                    row![
-                        text("Schedule:").width(Length::Fixed(120.0)),
-                        column![text!("Tue 5:30 PM"), text!("Thu 5:30 PM")].spacing(2)
-                    ]
-                    .spacing(60),
-                    row![
-                        text("Next session:").width(Length::Fixed(120.0)),
-                        text!("Thursday, Nov 17")
-                    ]
-                    .spacing(60),
-                    container(
+                        .spacing(60),
                         row![
-                            container(mouse_area(row![
-                                svg::Svg::new(plus_handle.clone()).width(20).height(20),
-                                text("Add session").size(14)
-                            ]))
-                            .align_left(Length::Fill),
-                            container(mouse_area(row![edit_icon, text("Edit").size(14)]))
+                            text("Schedule:").width(Length::Fixed(120.0)),
+                            Column::new()
+                                .extend(student.tabled_sessions.iter().map(|session| {
+                                    text(format!("{} {}", session.day.to_string(), session.time))
+                                        .into()
+                                }))
+                                .spacing(2),
+                        ]
+                        .spacing(60),
+                        row![
+                            text("Next session:").width(Length::Fixed(120.0)),
+                            text!("Friday, Nov 18")
+                        ]
+                        .spacing(60),
+                        row![
+                            text("Completed sessions:").width(Length::Fixed(120.0)),
+                            text(format!("{}", compute_num_of_completed_sessions(student))),
+                        ]
+                        .spacing(60),
+                        row![
+                            text("Amount accrued:").width(Length::Fixed(120.0)),
+                            text(format!("GHS {}", compute_accrued_amount(student)))
+                        ]
+                        .spacing(60),
+                        container(
+                            row![
+                                container(mouse_area(row![
+                                    svg::Svg::new(plus_handle.clone()).width(20).height(20),
+                                    text("Add session").size(14)
+                                ]))
+                                .align_left(Length::Fill),
+                                container(mouse_area(row![
+                                    svg::Svg::new(edit_handle.clone()).width(20).height(20),
+                                    text("Edit").size(14)
+                                ]))
                                 .align_right(Length::Fill)
-                        ]
-                        .spacing(50),
-                    )
-                    .align_bottom(Length::Fill)
-                ])
-                .width(Length::Fixed(400.0))
-                .height(Length::Fixed(200.0))
-                .padding([10, 20])
-                .style(|theme: &Theme| {
-                    let palette = theme.extended_palette();
+                            ]
+                            .spacing(50),
+                        )
+                        .align_bottom(Length::Fill)
+                    ])
+                    .width(Length::Fixed(400.0))
+                    .height(Length::Fixed(250.0))
+                    .padding([10, 20])
+                    .style(|theme: &Theme| {
+                        let palette = theme.extended_palette();
 
-                    container::Style {
-                        border: Border {
-                            color: palette.background.strong.color,
-                            width: 1.5,
-                            radius: 10.0.into(),
+                        container::Style {
+                            border: Border {
+                                color: palette.background.strong.color,
+                                width: 1.5,
+                                radius: 10.0.into(),
+                                ..Default::default()
+                            },
                             ..Default::default()
-                        },
-                        ..Default::default()
-                    }
+                        }
+                    })
+                    .into()
                 });
 
-                container(row![student1, student2].spacing(10))
+                // let student1 = container(column![
+                //     text!("Mary Jane"),
+                //     horizontal_rule(1),
+                //     row![
+                //         text("Subject(s):").width(Length::Fixed(120.0)),
+                //         text!("Extended Mathematics")
+                //     ]
+                //     .spacing(60),
+                //     row![
+                //         text("Schedule:").width(Length::Fixed(120.0)),
+                //         column![text!("Tue 5:30 PM"), text!("Thu 5:30 PM")].spacing(2)
+                //     ]
+                //     .spacing(60),
+                //     row![
+                //         text("Next session:").width(Length::Fixed(120.0)),
+                //         text!("Friday, Nov 18")
+                //     ]
+                //     .spacing(60),
+                //     row![
+                //         text("Completed sessions:").width(Length::Fixed(120.0)),
+                //         text!("5")
+                //     ]
+                //     .spacing(60),
+                //     row![
+                //         text("Amount accrued:").width(Length::Fixed(120.0)),
+                //         text!("GHS 750")
+                //     ]
+                //     .spacing(60),
+                //     container(
+                //         row![
+                //             container(mouse_area(row![
+                //                 svg::Svg::new(plus_handle.clone()).width(20).height(20),
+                //                 text("Add session").size(14)
+                //             ]))
+                //             .align_left(Length::Fill),
+                //             container(mouse_area(row![
+                //                 svg::Svg::new(edit_handle.clone()).width(20).height(20),
+                //                 text("Edit").size(14)
+                //             ]))
+                //             .align_right(Length::Fill)
+                //         ]
+                //         .spacing(50),
+                //     )
+                //     .align_bottom(Length::Fill)
+                // ])
+                // .width(Length::Fixed(400.0))
+                // .height(Length::Fixed(250.0))
+                // .padding([10, 20])
+                // .style(|theme: &Theme| {
+                //     let palette = theme.extended_palette();
+
+                //     container::Style {
+                //         border: Border {
+                //             color: palette.background.strong.color,
+                //             width: 1.5,
+                //             radius: 10.0.into(),
+                //             ..Default::default()
+                //         },
+                //         ..Default::default()
+                //     }
+                // });
+
+                container(Row::new().extend(students).spacing(10))
+
+                // container(row![student1, student2].spacing(10))
             };
 
             let main_container =
@@ -308,7 +344,9 @@ fn modal<'a, Message: 'a>(
 // DOMAIN MODELS
 struct Student {
     name: PersonalName,
-    session_data: SessionData,
+    subject: TutorSubject,
+    tabled_sessions: Vec<SessionData>,
+    actual_sessions: Vec<DateTime<Local>>,
 
     payment_data: PaymentData,
 }
@@ -320,34 +358,121 @@ struct PersonalName {
 }
 
 struct SessionData {
-    days: Vec<MeetingDays>,
-    subject: TutorSubjects,
+    day: Weekday,
     time: String,
 }
 
-enum MeetingDays {
-    Monday,
-    Tuesday,
-    Wednesday,
-    Thursday,
-    Friday,
-    Saturday,
-    Sunday,
-}
-
-struct Session {
-    date: String,
-    time: String,
-    subject: TutorSubjects,
-}
-
-enum TutorSubjects {
+enum TutorSubject {
     AdditionalMathematics,
     ExtendedMathematics,
     Statistics,
 }
 
+impl TutorSubject {
+    fn as_str(&self) -> &str {
+        match self {
+            TutorSubject::AdditionalMathematics => "Additional Mathematics",
+            TutorSubject::ExtendedMathematics => "Extended Mathematics",
+            TutorSubject::Statistics => "Statistics",
+        }
+    }
+}
+
 struct PaymentData {
     per_session_amount: f32,
-    due_date: String,
+}
+
+fn compute_accrued_amount(student: &Student) -> f32 {
+    let no_of_days = compute_num_of_completed_sessions(student);
+    student.payment_data.per_session_amount * (no_of_days as f32)
+}
+
+fn compute_num_of_completed_sessions(student: &Student) -> i32 {
+    let today_date = Local::now().naive_local().date();
+    let current_year = today_date.year();
+    let current_month = today_date.month();
+    let month_start_date = NaiveDate::from_ymd_opt(current_year, current_month, 1).unwrap();
+
+    let duration = today_date.signed_duration_since(month_start_date);
+    let all_dates: Vec<NaiveDate> = (0..=duration.num_days())
+        .map(|i| month_start_date + Duration::days(i))
+        .collect();
+    let session_days: Vec<Weekday> = student.tabled_sessions
+        .iter()
+        .map(|session| session.day)
+        .collect();
+
+    let actual_session_dates: Vec<NaiveDate> = student.actual_sessions
+        .iter()
+        .map(|dt| dt.naive_local().date())
+        .collect();
+
+    let session_dates: Vec<&NaiveDate> = all_dates
+        .iter()
+        .filter(|date| actual_session_dates.contains(date))
+        .collect();
+
+    let no_of_days = session_dates
+        .iter()
+        .filter(|date| session_days.contains(&date.weekday()))
+        .count();
+
+    no_of_days as i32
+}
+
+// MOCK DATA
+fn mock_data() -> Vec<Student> {
+    vec![
+        Student {
+            name: PersonalName {
+                first: String::from("Mary"),
+                last: String::from("Jane"),
+                other: None,
+            },
+            subject: TutorSubject::AdditionalMathematics,
+            tabled_sessions: vec![
+                SessionData {
+                    day: Weekday::Tue,
+                    time: String::from("5:30 PM"),
+                },
+                SessionData {
+                    day: Weekday::Thu,
+                    time: String::from("5:30 PM"),
+                },
+            ],
+            actual_sessions: vec![
+                Local.with_ymd_and_hms(2025, 11, 4, 17, 30, 0).unwrap(),
+                Local.with_ymd_and_hms(2025, 11, 6, 13, 30, 0).unwrap(),
+            ],
+            payment_data: PaymentData {
+                per_session_amount: 150.0,
+            },
+        },
+        Student {
+            name: PersonalName {
+                first: String::from("Peter"),
+                last: String::from("Parker"),
+                other: None,
+            },
+            subject: TutorSubject::ExtendedMathematics,
+            tabled_sessions: vec![
+                SessionData {
+                    day: Weekday::Wed,
+                    time: String::from("4:00 PM"),
+                },
+                SessionData {
+                    day: Weekday::Sat,
+                    time: String::from("1:30 PM"),
+                },
+            ],
+            actual_sessions: vec![
+                Local.with_ymd_and_hms(2025, 11, 5, 16, 0, 0).unwrap(),
+                Local.with_ymd_and_hms(2025, 11, 8, 13, 30, 0).unwrap(),
+                Local.with_ymd_and_hms(2025, 11, 22, 13, 30, 0).unwrap(),
+            ],
+            payment_data: PaymentData {
+                per_session_amount: 150.0,
+            },
+        },
+    ]
 }

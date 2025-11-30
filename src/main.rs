@@ -117,6 +117,10 @@ impl TutoringManager {
             let action_bar = row![search_bar, add_button].spacing(100);
             let card_container = {
                 let students = self.state.students.iter().map(|student| {
+                    let next_session = get_next_session(student);
+                    let day = next_session.format("%A").to_string();
+                    let date = next_session.format("%d %B %Y").to_string();
+
                     container(column![
                         text(format!("{} {}", student.name.first, student.name.last)),
                         horizontal_rule(1),
@@ -137,7 +141,7 @@ impl TutoringManager {
                         .spacing(60),
                         row![
                             text("Next session:").width(Length::Fixed(120.0)),
-                            text!("Friday, Nov 18")
+                            text(format!("{}, {}", day, date))
                         ]
                         .spacing(60),
                         row![
@@ -186,71 +190,7 @@ impl TutoringManager {
                     .into()
                 });
 
-                // let student1 = container(column![
-                //     text!("Mary Jane"),
-                //     horizontal_rule(1),
-                //     row![
-                //         text("Subject(s):").width(Length::Fixed(120.0)),
-                //         text!("Extended Mathematics")
-                //     ]
-                //     .spacing(60),
-                //     row![
-                //         text("Schedule:").width(Length::Fixed(120.0)),
-                //         column![text!("Tue 5:30 PM"), text!("Thu 5:30 PM")].spacing(2)
-                //     ]
-                //     .spacing(60),
-                //     row![
-                //         text("Next session:").width(Length::Fixed(120.0)),
-                //         text!("Friday, Nov 18")
-                //     ]
-                //     .spacing(60),
-                //     row![
-                //         text("Completed sessions:").width(Length::Fixed(120.0)),
-                //         text!("5")
-                //     ]
-                //     .spacing(60),
-                //     row![
-                //         text("Amount accrued:").width(Length::Fixed(120.0)),
-                //         text!("GHS 750")
-                //     ]
-                //     .spacing(60),
-                //     container(
-                //         row![
-                //             container(mouse_area(row![
-                //                 svg::Svg::new(plus_handle.clone()).width(20).height(20),
-                //                 text("Add session").size(14)
-                //             ]))
-                //             .align_left(Length::Fill),
-                //             container(mouse_area(row![
-                //                 svg::Svg::new(edit_handle.clone()).width(20).height(20),
-                //                 text("Edit").size(14)
-                //             ]))
-                //             .align_right(Length::Fill)
-                //         ]
-                //         .spacing(50),
-                //     )
-                //     .align_bottom(Length::Fill)
-                // ])
-                // .width(Length::Fixed(400.0))
-                // .height(Length::Fixed(250.0))
-                // .padding([10, 20])
-                // .style(|theme: &Theme| {
-                //     let palette = theme.extended_palette();
-
-                //     container::Style {
-                //         border: Border {
-                //             color: palette.background.strong.color,
-                //             width: 1.5,
-                //             radius: 10.0.into(),
-                //             ..Default::default()
-                //         },
-                //         ..Default::default()
-                //     }
-                // });
-
                 container(Row::new().extend(students).spacing(10))
-
-                // container(row![student1, student2].spacing(10))
             };
 
             let main_container =
@@ -418,6 +358,26 @@ fn compute_num_of_completed_sessions(student: &Student) -> i32 {
         .count();
 
     no_of_days as i32
+}
+
+fn get_next_session(student: &Student) -> NaiveDate {
+    let tabled_next_days: Vec<Weekday> = student.tabled_sessions.iter().map(|session| session.day).collect();
+    // let today_date = Local::now().naive_local().date();
+    // let current_year = today_date.year();
+    // let current_month = today_date.month();
+    // let current_day = today_date.day0();
+    // let current_date = NaiveDate::from_ymd_opt(current_year, current_month, current_day+1).unwrap();
+
+    let today = Local::now().naive_local().date();
+    let next_seven_dates: Vec<NaiveDate> = (1..=7)
+        .map(|i| today + Duration::days(i))
+        .collect();
+
+    next_seven_dates
+        .into_iter()
+        .filter(|date| tabled_next_days.contains(&date.weekday()))
+        .min()
+        .unwrap()
 }
 
 // MOCK DATA

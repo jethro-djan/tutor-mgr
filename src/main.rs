@@ -1,9 +1,11 @@
+use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Weekday};
+use iced::advanced::layout::contained;
+use iced::mouse::Interaction;
 use iced::widget::{
     Column, Row, button, column, container, focus_next, horizontal_rule, mouse_area, row, stack,
-    svg, text, text_input,
+    svg, text, text_input, Container,
 };
-use iced::{Border, Center, Element, Length, Task, Theme};
-use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Weekday};
+use iced::{Background, Border, Center, Color, Element, Length, Renderer, Task, Theme};
 
 struct TutoringManager {
     current_screen: Screen,
@@ -11,6 +13,9 @@ struct TutoringManager {
 }
 
 struct State {
+    // Main app
+    selected_menu_item: SideMenuItem,
+
     // Dashboard
 
     // StudentManager
@@ -25,6 +30,7 @@ impl TutoringManager {
             Self {
                 current_screen: Screen::Dashboard,
                 state: State {
+                    selected_menu_item: SideMenuItem::Dashboard,
                     search_query: String::new(),
                     show_add_student_modal: false,
                     students: mock_data(),
@@ -47,6 +53,10 @@ impl TutoringManager {
                 };
                 Task::none()
             }
+            Message::MenuItemSelected(menu_item) => {
+                self.state.selected_menu_item = menu_item;
+                Task::none()
+            }
             Message::ShowAddStudentModal => {
                 self.state.show_add_student_modal = true;
                 focus_next()
@@ -59,18 +69,31 @@ impl TutoringManager {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let dash_icon = svg(concat!(
+        let is_dash_selected = match self.state.selected_menu_item {
+            SideMenuItem::Dashboard => true,
+            SideMenuItem::StudentManager => false
+        };
+        let is_student_selected = match self.state.selected_menu_item {
+            SideMenuItem::Dashboard => false,
+            SideMenuItem::StudentManager => true,
+        };
+        let dash_handle = svg::Handle::from_path(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/resources/icons/dashboard_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"
-        ))
-        .width(25)
-        .height(25);
-        let student_icon = svg(concat!(
+        ));
+        let dash_icon = svg::Svg::new(dash_handle.clone())
+            .width(25)
+            .height(25)
+            .style(menu_icon_style);
+
+        let student_handle = svg::Handle::from_path(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/resources/icons/school_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"
-        ))
-        .width(25)
-        .height(25);
+        ));
+        let student_icon = svg::Svg::new(student_handle.clone())
+            .width(25)
+            .height(25)
+            .style(menu_icon_style);
         let plus_handle = svg::Handle::from_path(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/resources/icons/add_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"
@@ -80,17 +103,21 @@ impl TutoringManager {
             env!("CARGO_MANIFEST_DIR"),
             "/resources/icons/pen-to-square-regular-full.svg"
         ));
-        // let edit_icon = svg::Svg::new(edit_handle.clone()).width(20).height(20);
 
         let side_menu = container(
             column![
-                mouse_area(dash_icon).on_press(Message::NavigateToScreen(SideMenuItem::Dashboard)),
-                mouse_area(student_icon)
-                    .on_press(Message::NavigateToScreen(SideMenuItem::StudentManager)),
+                mouse_area(menu_item_container(dash_icon, is_dash_selected))
+                    .interaction(Interaction::Pointer)
+                    .on_press(Message::NavigateToScreen(SideMenuItem::Dashboard))
+                    .on_enter(Message::MenuItemSelected(SideMenuItem::Dashboard)),
+                mouse_area(menu_item_container(student_icon, is_student_selected))
+                    .interaction(Interaction::Pointer)
+                    .on_press(Message::NavigateToScreen(SideMenuItem::StudentManager))
+                    .on_enter(Message::MenuItemSelected(SideMenuItem::StudentManager)),
             ]
             .spacing(20),
         )
-        .padding([250, 20])
+        .padding([250, 0])
         .width(70)
         .height(Length::Fill)
         .style(|theme: &Theme| {
@@ -246,7 +273,9 @@ fn main() -> iced::Result {
 
 #[derive(Debug, Clone)]
 enum Message {
+    // Main app
     NavigateToScreen(SideMenuItem),
+    MenuItemSelected(SideMenuItem),
 
     // Student Manager
     ShowAddStudentModal,
@@ -337,12 +366,14 @@ fn compute_num_of_completed_sessions(student: &Student) -> i32 {
     let all_dates: Vec<NaiveDate> = (0..=duration.num_days())
         .map(|i| month_start_date + Duration::days(i))
         .collect();
-    let session_days: Vec<Weekday> = student.tabled_sessions
+    let session_days: Vec<Weekday> = student
+        .tabled_sessions
         .iter()
         .map(|session| session.day)
         .collect();
 
-    let actual_session_dates: Vec<NaiveDate> = student.actual_sessions
+    let actual_session_dates: Vec<NaiveDate> = student
+        .actual_sessions
         .iter()
         .map(|dt| dt.naive_local().date())
         .collect();
@@ -361,23 +392,52 @@ fn compute_num_of_completed_sessions(student: &Student) -> i32 {
 }
 
 fn get_next_session(student: &Student) -> NaiveDate {
-    let tabled_next_days: Vec<Weekday> = student.tabled_sessions.iter().map(|session| session.day).collect();
-    // let today_date = Local::now().naive_local().date();
-    // let current_year = today_date.year();
-    // let current_month = today_date.month();
-    // let current_day = today_date.day0();
-    // let current_date = NaiveDate::from_ymd_opt(current_year, current_month, current_day+1).unwrap();
+    let tabled_next_days: Vec<Weekday> = student
+        .tabled_sessions
+        .iter()
+        .map(|session| session.day)
+        .collect();
 
     let today = Local::now().naive_local().date();
-    let next_seven_dates: Vec<NaiveDate> = (1..=7)
-        .map(|i| today + Duration::days(i))
-        .collect();
+    let next_seven_dates: Vec<NaiveDate> = (1..=7).map(|i| today + Duration::days(i)).collect();
 
     next_seven_dates
         .into_iter()
         .filter(|date| tabled_next_days.contains(&date.weekday()))
         .min()
         .unwrap()
+}
+
+// STYLE FUNCTIONS
+fn menu_icon_style(theme: &Theme, status: svg::Status) -> svg::Style {
+    match status {
+        svg::Status::Idle => svg::Style { color: None },
+        svg::Status::Hovered => svg::Style {
+            color: Some(Color {
+                r: 0.3,
+                g: 0.6,
+                b: 1.0,
+                a: 0.5,
+            }),
+        },
+    }
+}
+
+fn menu_item_container(item: svg::Svg, is_item_selected: bool) -> Container<Message> {
+    container(item)
+        .center_x(Length::Fill)
+        .center_y(Length::Fixed(50.0))
+        .style(move |theme: &Theme| 
+            if is_item_selected {
+                container::Style {
+                    text_color: Some(Color::from_rgba(1.0, 1.0, 1.0, 0.5)), 
+                    background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.5))), 
+                    ..Default::default()
+                }
+            } else {
+                container::transparent(theme)
+            }
+        )
 }
 
 // MOCK DATA

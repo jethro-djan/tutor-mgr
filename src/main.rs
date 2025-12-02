@@ -1,11 +1,11 @@
 use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Weekday};
-use iced::advanced::layout::contained;
+use iced::advanced::graphics::core::font;
 use iced::mouse::Interaction;
 use iced::widget::{
     Column, Row, button, column, container, focus_next, horizontal_rule, mouse_area, row, stack,
-    svg, text, text_input, Container,
+    svg, text, text_input, Container, Text, Renderer
 };
-use iced::{Background, Border, Center, Color, Element, Length, Renderer, Task, Theme};
+use iced::{Background, Border, Center, Color, Element, Length, Task, Theme, Font};
 
 struct TutoringManager {
     current_screen: Screen,
@@ -15,6 +15,7 @@ struct TutoringManager {
 struct State {
     // Main app
     selected_menu_item: SideMenuItem,
+    hovered_menu_item: Option<SideMenuItem>,
 
     // Dashboard
 
@@ -31,6 +32,7 @@ impl TutoringManager {
                 current_screen: Screen::Dashboard,
                 state: State {
                     selected_menu_item: SideMenuItem::Dashboard,
+                    hovered_menu_item: None,
                     search_query: String::new(),
                     show_add_student_modal: false,
                     students: mock_data(),
@@ -47,14 +49,15 @@ impl TutoringManager {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::NavigateToScreen(menu_item) => {
+                self.state.selected_menu_item = menu_item.clone();
                 self.current_screen = match menu_item {
                     SideMenuItem::Dashboard => Screen::Dashboard,
                     SideMenuItem::StudentManager => Screen::StudentManager,
                 };
                 Task::none()
             }
-            Message::MenuItemSelected(menu_item) => {
-                self.state.selected_menu_item = menu_item;
+            Message::MenuItemHovered(menu_item_opt) => {
+                self.state.hovered_menu_item = menu_item_opt;
                 Task::none()
             }
             Message::ShowAddStudentModal => {
@@ -77,6 +80,17 @@ impl TutoringManager {
             SideMenuItem::Dashboard => false,
             SideMenuItem::StudentManager => true,
         };
+        let is_dash_hovered = match self.state.hovered_menu_item {
+            Some(SideMenuItem::Dashboard) => true,
+            Some(SideMenuItem::StudentManager) => false,
+            None => false,
+        };
+        let is_student_hovered = match self.state.hovered_menu_item {
+            Some(SideMenuItem::Dashboard) => false,
+            Some(SideMenuItem::StudentManager) => true,
+            None => false,
+        };
+
         let dash_handle = svg::Handle::from_path(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/resources/icons/dashboard_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"
@@ -84,7 +98,8 @@ impl TutoringManager {
         let dash_icon = svg::Svg::new(dash_handle.clone())
             .width(25)
             .height(25)
-            .style(menu_icon_style);
+            .style(move |_theme: &Theme, _status: svg::Status| { menu_icon_style(is_dash_hovered) });
+        let dash_item_text = String::from("Dashboard");
 
         let student_handle = svg::Handle::from_path(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -93,7 +108,9 @@ impl TutoringManager {
         let student_icon = svg::Svg::new(student_handle.clone())
             .width(25)
             .height(25)
-            .style(menu_icon_style);
+            .style(move |_theme: &Theme, _status: svg::Status| { menu_icon_style(is_student_hovered) });
+        let student_item_text = String::from("Student");
+
         let plus_handle = svg::Handle::from_path(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/resources/icons/add_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"
@@ -106,14 +123,16 @@ impl TutoringManager {
 
         let side_menu = container(
             column![
-                mouse_area(menu_item_container(dash_icon, is_dash_selected))
+                mouse_area(menu_item_container(dash_icon, dash_item_text, is_dash_selected, is_dash_hovered))
                     .interaction(Interaction::Pointer)
                     .on_press(Message::NavigateToScreen(SideMenuItem::Dashboard))
-                    .on_enter(Message::MenuItemSelected(SideMenuItem::Dashboard)),
-                mouse_area(menu_item_container(student_icon, is_student_selected))
+                    .on_enter(Message::MenuItemHovered(Some(SideMenuItem::Dashboard)))
+                    .on_exit(Message::MenuItemHovered(None)),
+                mouse_area(menu_item_container(student_icon, student_item_text, is_student_selected, is_student_hovered))
                     .interaction(Interaction::Pointer)
                     .on_press(Message::NavigateToScreen(SideMenuItem::StudentManager))
-                    .on_enter(Message::MenuItemSelected(SideMenuItem::StudentManager)),
+                    .on_enter(Message::MenuItemHovered(Some(SideMenuItem::StudentManager)))
+                    .on_exit(Message::MenuItemHovered(None)),
             ]
             .spacing(20),
         )
@@ -275,7 +294,7 @@ fn main() -> iced::Result {
 enum Message {
     // Main app
     NavigateToScreen(SideMenuItem),
-    MenuItemSelected(SideMenuItem),
+    MenuItemHovered(Option<SideMenuItem>),
 
     // Student Manager
     ShowAddStudentModal,
@@ -409,22 +428,45 @@ fn get_next_session(student: &Student) -> NaiveDate {
 }
 
 // STYLE FUNCTIONS
-fn menu_icon_style(theme: &Theme, status: svg::Status) -> svg::Style {
-    match status {
-        svg::Status::Idle => svg::Style { color: None },
-        svg::Status::Hovered => svg::Style {
+fn menu_icon_style(is_item_hovered: bool) -> svg::Style {
+    if is_item_hovered {
+        svg::Style {
             color: Some(Color {
                 r: 0.3,
                 g: 0.6,
                 b: 1.0,
                 a: 0.5,
             }),
-        },
+        }
+    } else {
+        svg::Style { color: None }
     }
 }
 
-fn menu_item_container(item: svg::Svg, is_item_selected: bool) -> Container<Message> {
-    container(item)
+fn menu_item_container(item: svg::Svg, item_text: String, is_item_selected: bool, is_item_hovered: bool) -> Container<Message> {
+    let content = if is_item_hovered {
+        let text_item_widget = text(format!("{}", item_text))
+            .font(Font {
+                weight: font::Weight::Thin,
+                ..Default::default()
+            })
+            .size(11)
+            .style(|_theme: &Theme| {
+                text::Style {
+                    color: Some(Color {
+                        r: 0.3,
+                        g: 0.6,
+                        b: 1.0,
+                        a: 0.5,
+                    }),
+                }
+            });
+        column![item, text_item_widget].spacing(5)
+    } else {
+        column![item,].spacing(5)
+    };
+
+    container(content)
         .center_x(Length::Fill)
         .center_y(Length::Fixed(50.0))
         .style(move |theme: &Theme| 

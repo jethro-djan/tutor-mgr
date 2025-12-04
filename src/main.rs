@@ -25,16 +25,13 @@ struct State {
     show_menu_text: bool,
 
     // Dashboard
+    dashboard_card_hovered: bool,
 
     // StudentManager
     search_query: String,
     show_add_student_modal: bool,
     students: Vec<Student>,
     hovered_student_card: Option<usize>,
-}
-
-struct CardStyle {
-    shadow_properties: Shadow,
 }
 
 impl TutoringManager {
@@ -49,6 +46,9 @@ impl TutoringManager {
                     side_menu_hovered: false,
                     show_menu_text: false,
                     menu_item_container_height: 50.0,
+
+                    dashboard_card_hovered: false,
+
                     search_query: String::new(),
                     show_add_student_modal: false,
                     students: mock_data(),
@@ -71,6 +71,10 @@ impl TutoringManager {
                     SideMenuItem::Dashboard => Screen::Dashboard,
                     SideMenuItem::StudentManager => Screen::StudentManager,
                 };
+                Task::none()
+            }
+            Message::DashboardCardHovered(is_hovered) => {
+                self.state.dashboard_card_hovered = is_hovered;
                 Task::none()
             }
             Message::MenuItemHovered(menu_item_opt) => {
@@ -238,136 +242,261 @@ impl TutoringManager {
         .on_enter(Message::SideMenuHovered(true))
         .on_exit(Message::SideMenuHovered(false));
 
+        let dashboard_page: Element<Message> = {
+            let page_title_text = text!("Dashboard").size(20);
+            let page_title = row![page_title_text];
+
+            let attendance_rate_card = mouse_area(
+                container(
+                    column![
+                        text("Attendance Rate").size(15).font(Font {
+                            weight: font::Weight::Medium,
+                            ..Default::default()
+                        }),
+                        text("85%").size(25).font(Font {
+                            weight: font::Weight::Medium,
+                            ..Default::default()
+                        }),
+                        container(text("5% MoM").size(12).font(Font {
+                            weight: font::Weight::Light,
+                            ..Default::default()
+                        }))
+                        .align_bottom(Length::Fill),
+                    ]
+                    .align_x(Center)
+                    .spacing(5),
+                )
+                .height(Length::Fixed(100.0))
+                .padding([10, 20])
+                .center_x(Length::Fixed(180.0))
+                .style(move |theme: &Theme| {
+                    let palette = theme.extended_palette();
+
+                    container::Style {
+                        border: Border {
+                            color: palette.background.strong.color,
+                            width: 1.5,
+                            radius: 10.0.into(),
+                            ..Default::default()
+                        },
+                        shadow: if self.state.dashboard_card_hovered {
+                            Shadow {
+                                color: Color::from_rgba(0.0, 0.0, 0.0, 0.25),
+                                offset: Vector::new(0.4, 0.0),
+                                blur_radius: 12.0,
+                            }
+                        } else {
+                            Shadow::default()
+                        },
+                        ..Default::default()
+                    }
+                }),
+            )
+            .on_enter(Message::DashboardCardHovered(true))
+            .on_exit(Message::DashboardCardHovered(false));
+
+            let actual_earnings_card = column![text("Actual Earnings"), text("GHS 1500"),];
+
+            let potential_earnings_card = column![text("Potential Earnings"), text("GHS 2000"),];
+
+            let revenue_lost_card = column![text("Revenue Lost"), text("GHS 2000"),];
+
+            let summary_cards = row![
+                attendance_rate_card,
+                actual_earnings_card,
+                potential_earnings_card,
+                revenue_lost_card,
+            ]
+            .spacing(10);
+
+            let attendance_trend_chart = container(text("Trend chart"));
+            let potential_vs_actual_chart = container(text("Bar chart"));
+
+            let graphs = row![attendance_trend_chart, potential_vs_actual_chart,];
+
+            container(column![page_title, summary_cards, graphs].spacing(30))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+        };
+
         let student_page: Element<Message> = {
-            let page_title_text = text!("Student Manager").size(20);
+            let page_title_text = text!("Student Manager")
+                .font(Font {
+                    weight: font::Weight::Bold,
+                    ..Default::default()
+                })
+                .size(24);
             let page_title = row![page_title_text];
 
             let search_bar = container(text_input("Search students", &self.state.search_query));
             let add_button = button(plus_icon).on_press(Message::ShowAddStudentModal);
             let action_bar = row![search_bar, add_button].spacing(100);
             let card_container = {
-                let card_contents = self.state.students.iter().enumerate().map(|(index, student)| {
-                    let next_session = get_next_session(student);
-                    let day = next_session.format("%A").to_string();
-                    let date = next_session.format("%d %B %Y").to_string();
+                let card_contents =
+                    self.state
+                        .students
+                        .iter()
+                        .enumerate()
+                        .map(|(index, student)| {
+                            let next_session = get_next_session(student);
+                            let day = next_session.format("%A").to_string();
+                            let date = next_session.format("%d %B %Y").to_string();
 
-                    let is_hovered = self.state.hovered_student_card == Some(index);
+                            let is_hovered = self.state.hovered_student_card == Some(index);
 
-                    let title_section = row![
-                        column![
-                            container(
-                                text(format!("{} {}", student.name.first, student.name.last))
-                                    .font(Font {
-                                        weight: font::Weight::Bold,
-                                        ..Default::default()
-                                    })
-                                    .size(20)
-                            ),
-                            container(
-                                text(student.subject.as_str())
-                                    .font(Font {
-                                        weight: font::Weight::Light,
-                                        ..Default::default()
-                                    })
-                                    .size(15)
-                            ),
-                        ]
-                        .align_x(Alignment::Start)
-                        .width(Length::Fill)
-                        .spacing(5)
-                    ]
-                    .height(Length::Fixed(50.0));
+                            let student_other_name = match &student.name.other {
+                                Some(name) => name,
+                                None => "",
+                            };
 
-                    let main_section = column![
-                        row![
-                            container(svg::Svg::new(calendar_handle.clone()).width(22).height(22))
-                                .align_y(Alignment::Center)
-                                .height(Length::Fixed(30.0)),
-                            container(
+                            let title_section = row![
                                 column![
-                                    text("Schedule")
+                                    container(if student.name.other == None {
+                                        text(format!(
+                                            "{} {}",
+                                            student.name.first, student.name.last
+                                        ))
                                         .font(Font {
-                                            weight: font::Weight::Normal,
+                                            weight: font::Weight::Bold,
                                             ..Default::default()
                                         })
-                                        .size(12),
-                                    Column::new()
-                                        .extend(student.tabled_sessions.iter().map(|session| {
-                                            text(format!(
-                                                "{} {}",
-                                                session.day.to_string(),
-                                                session.time
-                                            ))
-                                            .into()
-                                        }))
-                                        .spacing(2),
-                                ]
-                                .spacing(4)
-                            ),
-                        ]
-                        .spacing(10),
-                        row![
-                            container(svg::Svg::new(schedule_handle.clone()).width(22).height(22))
-                                .align_y(Alignment::Center)
-                                .height(Length::Fixed(30.0)),
-                            container(
-                                column![
-                                    text("Next session")
+                                        .size(20)
+                                    } else {
+                                        text(format!(
+                                            "{} {} {}",
+                                            student.name.first,
+                                            student_other_name,
+                                            student.name.last
+                                        ))
                                         .font(Font {
-                                            weight: font::Weight::Normal,
+                                            weight: font::Weight::Bold,
                                             ..Default::default()
                                         })
-                                        .size(12),
-                                    text(format!("{}, {}", day, date))
+                                        .size(20)
+                                    }),
+                                    container(
+                                        text(student.subject.as_str())
+                                            .font(Font {
+                                                weight: font::Weight::Light,
+                                                ..Default::default()
+                                            })
+                                            .size(15)
+                                    ),
                                 ]
-                                .spacing(5),
-                            ),
-                        ]
-                        .spacing(10),
-                        row![
-                            container(svg::Svg::new(complete_handle.clone()).width(22).height(22))
-                                .align_y(Alignment::Center)
-                                .height(Length::Fixed(30.0)),
-                            container(
-                                column![
-                                    text("Completed sessions")
-                                        .font(Font {
-                                            weight: font::Weight::Normal,
-                                            ..Default::default()
-                                        })
-                                        .size(12),
-                                    text(format!("{}", compute_num_of_completed_sessions(student))),
-                                ]
-                                .spacing(5),
-                            ),
-                        ]
-                        .spacing(10),
-                        row![
-                            container(svg::Svg::new(payments_handle.clone()).width(22).height(22))
-                                .align_y(Alignment::Center)
-                                .height(Length::Fixed(30.0)),
-                            container(
-                                column![
-                                    text("Amount accrued")
-                                        .font(Font {
-                                            weight: font::Weight::Normal,
-                                            ..Default::default()
-                                        })
-                                        .size(12),
-                                    text(format!("GHS {}", compute_accrued_amount(student)))
-                                ]
+                                .align_x(Alignment::Start)
+                                .width(Length::Fill)
                                 .spacing(5)
-                            ),
-                        ]
-                        .spacing(10),
-                    ]
-                    .spacing(40);
+                            ]
+                            .height(Length::Fixed(50.0));
 
-                    let action_section = container(
-                        row![
-                            button(
+                            let main_section = column![
+                                row![
+                                    container(
+                                        svg::Svg::new(calendar_handle.clone()).width(22).height(22)
+                                    )
+                                    .align_y(Alignment::Center)
+                                    .height(Length::Fixed(30.0)),
+                                    container(
+                                        column![
+                                            text("Schedule")
+                                                .font(Font {
+                                                    weight: font::Weight::Normal,
+                                                    ..Default::default()
+                                                })
+                                                .size(12),
+                                            Column::new()
+                                                .extend(student.tabled_sessions.iter().map(
+                                                    |session| {
+                                                        text(format!(
+                                                            "{} {}",
+                                                            session.day.to_string(),
+                                                            session.time
+                                                        ))
+                                                        .into()
+                                                    }
+                                                ))
+                                                .spacing(2),
+                                        ]
+                                        .spacing(4)
+                                    ),
+                                ]
+                                .spacing(10),
+                                row![
+                                    container(
+                                        svg::Svg::new(schedule_handle.clone()).width(22).height(22)
+                                    )
+                                    .align_y(Alignment::Center)
+                                    .height(Length::Fixed(30.0)),
+                                    container(
+                                        column![
+                                            text("Next session")
+                                                .font(Font {
+                                                    weight: font::Weight::Normal,
+                                                    ..Default::default()
+                                                })
+                                                .size(12),
+                                            text(format!("{}, {}", day, date))
+                                        ]
+                                        .spacing(5),
+                                    ),
+                                ]
+                                .spacing(10),
+                                row![
+                                    container(
+                                        svg::Svg::new(complete_handle.clone()).width(22).height(22)
+                                    )
+                                    .align_y(Alignment::Center)
+                                    .height(Length::Fixed(30.0)),
+                                    container(
+                                        column![
+                                            text("Completed sessions")
+                                                .font(Font {
+                                                    weight: font::Weight::Normal,
+                                                    ..Default::default()
+                                                })
+                                                .size(12),
+                                            text(format!(
+                                                "{}",
+                                                compute_num_of_completed_sessions(student)
+                                            )),
+                                        ]
+                                        .spacing(5),
+                                    ),
+                                ]
+                                .spacing(10),
+                                row![
+                                    container(
+                                        svg::Svg::new(payments_handle.clone()).width(22).height(22)
+                                    )
+                                    .align_y(Alignment::Center)
+                                    .height(Length::Fixed(30.0)),
+                                    container(
+                                        column![
+                                            text("Amount accrued")
+                                                .font(Font {
+                                                    weight: font::Weight::Normal,
+                                                    ..Default::default()
+                                                })
+                                                .size(12),
+                                            text(format!(
+                                                "GHS {}",
+                                                compute_accrued_amount(student)
+                                            ))
+                                        ]
+                                        .spacing(5)
+                                    ),
+                                ]
+                                .spacing(10),
+                            ]
+                            .spacing(40);
+
+                            let action_section =
                                 container(
                                     row![
+                                        button(
+                                            container(
+                                                row![
                                         svg::Svg::new(plus_handle.clone())
                                             .width(16)
                                             .height(18)
@@ -392,29 +521,29 @@ impl TutoringManager {
                                                 }
                                             }),
                                     ]
-                                    .spacing(5)
-                                    .align_y(Center)
-                                )
-                                .align_x(Center)
-                            )
-                            .style(|theme: &Theme, _status: button::Status| {
-                                let palette = theme.extended_palette();
-                                button::Style {
-                                    background: Some(Background::Color(Color::BLACK)),
-                                    // background: Some(Background::Color(palette.primary.base.color)),
-                                    border: Border {
-                                        radius: 10.0.into(),
-                                        ..Default::default()
-                                    },
-                                    ..Default::default()
-                                }
-                            })
-                            .padding(10)
-                            .width(Length::FillPortion(2))
-                            .height(Length::Fixed(40.0)),
-                            button(
-                                container(
-                                    row![
+                                                .spacing(5)
+                                                .align_y(Center)
+                                            )
+                                            .align_x(Center)
+                                        )
+                                        .style(|theme: &Theme, _status: button::Status| {
+                                            let palette = theme.extended_palette();
+                                            button::Style {
+                                                background: Some(Background::Color(Color::BLACK)),
+                                                // background: Some(Background::Color(palette.primary.base.color)),
+                                                border: Border {
+                                                    radius: 10.0.into(),
+                                                    ..Default::default()
+                                                },
+                                                ..Default::default()
+                                            }
+                                        })
+                                        .padding(10)
+                                        .width(Length::FillPortion(2))
+                                        .height(Length::Fixed(40.0)),
+                                        button(
+                                            container(
+                                                row![
                                         svg::Svg::new(edit_handle.clone())
                                             .width(16)
                                             .height(18)
@@ -431,74 +560,73 @@ impl TutoringManager {
                                             ..Default::default()
                                         })
                                     ]
-                                    .spacing(5)
-                                    .align_y(Center)
+                                                .spacing(5)
+                                                .align_y(Center)
+                                            )
+                                            .align_x(Center)
+                                        )
+                                        .style(|theme: &Theme, _status: button::Status| {
+                                            let palette = theme.extended_palette();
+                                            button::Style {
+                                                background: Some(Background::Color(
+                                                    palette.background.weak.color,
+                                                )),
+                                                border: Border {
+                                                    radius: 10.0.into(),
+                                                    ..Default::default()
+                                                },
+                                                ..Default::default()
+                                            }
+                                        })
+                                        .padding(10)
+                                        .width(Length::FillPortion(1))
+                                        .height(Length::Fixed(40.0)),
+                                    ]
+                                    .spacing(10),
                                 )
-                                .align_x(Center)
+                                .height(Length::Fixed(150.0))
+                                .width(Length::Fill)
+                                .align_y(Alignment::Start);
+
+                            let card = container(
+                                column![
+                                    title_section,
+                                    column![main_section, action_section].spacing(30),
+                                ]
+                                .spacing(20),
                             )
-                            .style(|theme: &Theme, _status: button::Status| {
+                            .width(Length::Fixed(300.0))
+                            .height(Length::Fixed(500.0))
+                            .padding([10, 20])
+                            .style(move |theme: &Theme| {
                                 let palette = theme.extended_palette();
-                                button::Style {
-                                    background: Some(Background::Color(
-                                        palette.background.weak.color,
-                                    )),
+
+                                container::Style {
                                     border: Border {
+                                        color: palette.background.strong.color,
+                                        width: 1.5,
                                         radius: 10.0.into(),
                                         ..Default::default()
                                     },
+                                    shadow: if is_hovered {
+                                        Shadow {
+                                            color: Color::from_rgba(0.0, 0.0, 0.0, 0.25),
+                                            offset: Vector::new(0.4, 0.0),
+                                            blur_radius: 12.0,
+                                        }
+                                    } else {
+                                        Shadow::default()
+                                    },
                                     ..Default::default()
                                 }
-                            })
-                            .padding(10)
-                            .width(Length::FillPortion(1))
-                            .height(Length::Fixed(40.0)),
-                        ]
-                        .spacing(10),
-                    )
-                    .height(Length::Fixed(150.0))
-                    .width(Length::Fill)
-                    .align_y(Alignment::Start);
+                            });
 
-                    let card = container(
-                        column![
-                            title_section,
-                            column![main_section, action_section].spacing(30),
-                        ]
-                        .spacing(20),
-                    )
-                    .width(Length::Fixed(300.0))
-                    .height(Length::Fixed(500.0))
-                    .padding([10, 20])
-                    .style(move |theme: &Theme| {
-                        let palette = theme.extended_palette();
-
-                        container::Style {
-                            border: Border {
-                                color: palette.background.strong.color,
-                                width: 1.5,
-                                radius: 10.0.into(),
-                                ..Default::default()
-                            },
-                            shadow: if is_hovered {
-                                Shadow {
-                                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.25),
-                                    offset: Vector::new(0.4, 0.0),
-                                    blur_radius: 12.0,
-                                }
-                            } else {
-                                Shadow::default()
-                            },
-                            ..Default::default()
-                        }
-                    });
-
-                    mouse_area(card)
-                        .interaction(Interaction::Pointer)
-                        .on_enter(Message::StudentCardHovered(Some(index)))
-                        .on_exit(Message::StudentCardHovered(None))
-                        .into()
-                        
-                });
+                            mouse_area(card)
+                                .interaction(Interaction::Pointer)
+                                .on_enter(Message::StudentCardHovered(Some(index)))
+                                .on_exit(Message::StudentCardHovered(None))
+                                .into()
+                        });
 
                 container(Row::new().extend(card_contents).spacing(30))
             };
@@ -524,7 +652,7 @@ impl TutoringManager {
 
         let main_area = {
             match self.current_screen {
-                Screen::Dashboard => container(text!("Dashboard")).padding(20),
+                Screen::Dashboard => container(dashboard_page).padding(20),
                 Screen::StudentManager => container(student_page).padding(20),
             }
         };
@@ -560,6 +688,9 @@ enum Message {
     NavigateToScreen(SideMenuItem),
     MenuItemHovered(Option<SideMenuItem>),
     SideMenuHovered(bool),
+
+    // Dashboard
+    DashboardCardHovered(bool),
 
     // Student Manager
     ShowAddStudentModal,

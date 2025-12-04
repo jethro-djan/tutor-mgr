@@ -2,10 +2,13 @@ use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Weekday};
 use iced::advanced::graphics::core::font;
 use iced::mouse::Interaction;
 use iced::widget::{
-    Column, Row, button, column, container, focus_next, horizontal_rule, mouse_area, row, stack,
-    svg, text, text_input, Container, Text, Renderer
+    Column, Container, Row, button, column, container, focus_next, mouse_area, row, stack, svg,
+    text, text_input,
 };
-use iced::{Background, Border, Center, Color, Element, Length, Task, Theme, Font};
+use iced::{
+    Alignment, Background, Border, Center, Color, Element, Font, Length, Shadow, Task, Theme,
+    Vector,
+};
 
 struct TutoringManager {
     current_screen: Screen,
@@ -16,6 +19,10 @@ struct State {
     // Main app
     selected_menu_item: SideMenuItem,
     hovered_menu_item: Option<SideMenuItem>,
+    side_menu_width: f32,
+    menu_item_container_height: f32,
+    side_menu_hovered: bool,
+    show_menu_text: bool,
 
     // Dashboard
 
@@ -23,6 +30,11 @@ struct State {
     search_query: String,
     show_add_student_modal: bool,
     students: Vec<Student>,
+    hovered_student_card: Option<usize>,
+}
+
+struct CardStyle {
+    shadow_properties: Shadow,
 }
 
 impl TutoringManager {
@@ -33,9 +45,14 @@ impl TutoringManager {
                 state: State {
                     selected_menu_item: SideMenuItem::Dashboard,
                     hovered_menu_item: None,
+                    side_menu_width: 50.0,
+                    side_menu_hovered: false,
+                    show_menu_text: false,
+                    menu_item_container_height: 50.0,
                     search_query: String::new(),
                     show_add_student_modal: false,
                     students: mock_data(),
+                    hovered_student_card: None,
                 },
             },
             Task::none(),
@@ -57,7 +74,31 @@ impl TutoringManager {
                 Task::none()
             }
             Message::MenuItemHovered(menu_item_opt) => {
-                self.state.hovered_menu_item = menu_item_opt;
+                self.state.hovered_menu_item = menu_item_opt.clone();
+                self.state.side_menu_width = match menu_item_opt {
+                    Some(SideMenuItem::Dashboard) => 90.0,
+                    Some(SideMenuItem::StudentManager) => 90.0,
+                    None => 50.0,
+                };
+                self.state.menu_item_container_height = match menu_item_opt {
+                    Some(SideMenuItem::Dashboard) => 90.0,
+                    Some(SideMenuItem::StudentManager) => 90.0,
+                    None => 50.0,
+                };
+                Task::none()
+            }
+            Message::SideMenuHovered(is_hovered) => {
+                if is_hovered {
+                    self.state.menu_item_container_height = 90.0;
+                    self.state.side_menu_width = 90.0;
+                    self.state.side_menu_hovered = true;
+                    self.state.show_menu_text = true;
+                } else {
+                    self.state.menu_item_container_height = 50.0;
+                    self.state.side_menu_width = 50.0;
+                    self.state.side_menu_hovered = false;
+                    self.state.show_menu_text = false;
+                }
                 Task::none()
             }
             Message::ShowAddStudentModal => {
@@ -68,13 +109,17 @@ impl TutoringManager {
                 self.state.show_add_student_modal = false;
                 Task::none()
             }
+            Message::StudentCardHovered(card_index) => {
+                self.state.hovered_student_card = card_index;
+                Task::none()
+            }
         }
     }
 
     fn view(&self) -> Element<'_, Message> {
         let is_dash_selected = match self.state.selected_menu_item {
             SideMenuItem::Dashboard => true,
-            SideMenuItem::StudentManager => false
+            SideMenuItem::StudentManager => false,
         };
         let is_student_selected = match self.state.selected_menu_item {
             SideMenuItem::Dashboard => false,
@@ -98,7 +143,7 @@ impl TutoringManager {
         let dash_icon = svg::Svg::new(dash_handle.clone())
             .width(25)
             .height(25)
-            .style(move |_theme: &Theme, _status: svg::Status| { menu_icon_style(is_dash_hovered) });
+            .style(move |_theme: &Theme, _status: svg::Status| menu_icon_style(is_dash_hovered));
         let dash_item_text = String::from("Dashboard");
 
         let student_handle = svg::Handle::from_path(concat!(
@@ -108,8 +153,8 @@ impl TutoringManager {
         let student_icon = svg::Svg::new(student_handle.clone())
             .width(25)
             .height(25)
-            .style(move |_theme: &Theme, _status: svg::Status| { menu_icon_style(is_student_hovered) });
-        let student_item_text = String::from("Student");
+            .style(move |_theme: &Theme, _status: svg::Status| menu_icon_style(is_student_hovered));
+        let student_item_text = String::from("Student Manager");
 
         let plus_handle = svg::Handle::from_path(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -121,38 +166,77 @@ impl TutoringManager {
             "/resources/icons/pen-to-square-regular-full.svg"
         ));
 
-        let side_menu = container(
-            column![
-                mouse_area(menu_item_container(dash_icon, dash_item_text, is_dash_selected, is_dash_hovered))
+        let calendar_handle = svg::Handle::from_path(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/icons/calendar_today_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"
+        ));
+
+        let schedule_handle = svg::Handle::from_path(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/icons/schedule_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"
+        ));
+
+        let complete_handle = svg::Handle::from_path(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/icons/check_circle_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"
+        ));
+
+        let payments_handle = svg::Handle::from_path(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/icons/payments_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"
+        ));
+
+        let side_menu = mouse_area(
+            container(
+                column![
+                    mouse_area(menu_item_container(
+                        dash_icon,
+                        dash_item_text,
+                        is_dash_selected,
+                        is_dash_hovered,
+                        self.state.side_menu_hovered,
+                        self.state.menu_item_container_height,
+                    ))
                     .interaction(Interaction::Pointer)
                     .on_press(Message::NavigateToScreen(SideMenuItem::Dashboard))
                     .on_enter(Message::MenuItemHovered(Some(SideMenuItem::Dashboard)))
                     .on_exit(Message::MenuItemHovered(None)),
-                mouse_area(menu_item_container(student_icon, student_item_text, is_student_selected, is_student_hovered))
+                    mouse_area(menu_item_container(
+                        student_icon,
+                        student_item_text,
+                        is_student_selected,
+                        is_student_hovered,
+                        self.state.side_menu_hovered,
+                        self.state.menu_item_container_height,
+                    ))
                     .interaction(Interaction::Pointer)
                     .on_press(Message::NavigateToScreen(SideMenuItem::StudentManager))
                     .on_enter(Message::MenuItemHovered(Some(SideMenuItem::StudentManager)))
                     .on_exit(Message::MenuItemHovered(None)),
-            ]
-            .spacing(20),
-        )
-        .padding([250, 0])
-        .width(70)
-        .height(Length::Fill)
-        .style(|theme: &Theme| {
-            let palette = theme.extended_palette();
+                ]
+                .spacing(20),
+            )
+            .padding([250, 0])
+            .width(self.state.side_menu_width)
+            .height(Length::Fill)
+            .style(|theme: &Theme| {
+                let palette = theme.extended_palette();
 
-            container::Style {
-                background: Some(palette.background.weak.color.into()),
-                border: Border {
-                    color: palette.background.strong.color,
-                    width: 1.0,
-                    radius: 0.0.into(),
+                container::Style {
+                    background: Some(palette.background.weak.color.into()),
+                    border: Border {
+                        color: palette.background.strong.color,
+                        width: 1.0,
+                        radius: 0.0.into(),
+                        ..Default::default()
+                    },
                     ..Default::default()
-                },
-                ..Default::default()
-            }
-        });
+                }
+            }),
+        )
+        .interaction(Interaction::Pointer)
+        .on_enter(Message::SideMenuHovered(true))
+        .on_exit(Message::SideMenuHovered(false));
 
         let student_page: Element<Message> = {
             let page_title_text = text!("Student Manager").size(20);
@@ -162,65 +246,230 @@ impl TutoringManager {
             let add_button = button(plus_icon).on_press(Message::ShowAddStudentModal);
             let action_bar = row![search_bar, add_button].spacing(100);
             let card_container = {
-                let students = self.state.students.iter().map(|student| {
+                let card_contents = self.state.students.iter().enumerate().map(|(index, student)| {
                     let next_session = get_next_session(student);
                     let day = next_session.format("%A").to_string();
                     let date = next_session.format("%d %B %Y").to_string();
 
-                    container(column![
-                        text(format!("{} {}", student.name.first, student.name.last)),
-                        horizontal_rule(1),
-                        row![
-                            text("Subject(s):").width(Length::Fixed(120.0)),
-                            text(student.subject.as_str()),
+                    let is_hovered = self.state.hovered_student_card == Some(index);
+
+                    let title_section = row![
+                        column![
+                            container(
+                                text(format!("{} {}", student.name.first, student.name.last))
+                                    .font(Font {
+                                        weight: font::Weight::Bold,
+                                        ..Default::default()
+                                    })
+                                    .size(20)
+                            ),
+                            container(
+                                text(student.subject.as_str())
+                                    .font(Font {
+                                        weight: font::Weight::Light,
+                                        ..Default::default()
+                                    })
+                                    .size(15)
+                            ),
                         ]
-                        .spacing(60),
+                        .align_x(Alignment::Start)
+                        .width(Length::Fill)
+                        .spacing(5)
+                    ]
+                    .height(Length::Fixed(50.0));
+
+                    let main_section = column![
                         row![
-                            text("Schedule:").width(Length::Fixed(120.0)),
-                            Column::new()
-                                .extend(student.tabled_sessions.iter().map(|session| {
-                                    text(format!("{} {}", session.day.to_string(), session.time))
-                                        .into()
-                                }))
-                                .spacing(2),
+                            container(svg::Svg::new(calendar_handle.clone()).width(22).height(22))
+                                .align_y(Alignment::Center)
+                                .height(Length::Fixed(30.0)),
+                            container(
+                                column![
+                                    text("Schedule")
+                                        .font(Font {
+                                            weight: font::Weight::Normal,
+                                            ..Default::default()
+                                        })
+                                        .size(12),
+                                    Column::new()
+                                        .extend(student.tabled_sessions.iter().map(|session| {
+                                            text(format!(
+                                                "{} {}",
+                                                session.day.to_string(),
+                                                session.time
+                                            ))
+                                            .into()
+                                        }))
+                                        .spacing(2),
+                                ]
+                                .spacing(4)
+                            ),
                         ]
-                        .spacing(60),
+                        .spacing(10),
                         row![
-                            text("Next session:").width(Length::Fixed(120.0)),
-                            text(format!("{}, {}", day, date))
+                            container(svg::Svg::new(schedule_handle.clone()).width(22).height(22))
+                                .align_y(Alignment::Center)
+                                .height(Length::Fixed(30.0)),
+                            container(
+                                column![
+                                    text("Next session")
+                                        .font(Font {
+                                            weight: font::Weight::Normal,
+                                            ..Default::default()
+                                        })
+                                        .size(12),
+                                    text(format!("{}, {}", day, date))
+                                ]
+                                .spacing(5),
+                            ),
                         ]
-                        .spacing(60),
+                        .spacing(10),
                         row![
-                            text("Completed sessions:").width(Length::Fixed(120.0)),
-                            text(format!("{}", compute_num_of_completed_sessions(student))),
+                            container(svg::Svg::new(complete_handle.clone()).width(22).height(22))
+                                .align_y(Alignment::Center)
+                                .height(Length::Fixed(30.0)),
+                            container(
+                                column![
+                                    text("Completed sessions")
+                                        .font(Font {
+                                            weight: font::Weight::Normal,
+                                            ..Default::default()
+                                        })
+                                        .size(12),
+                                    text(format!("{}", compute_num_of_completed_sessions(student))),
+                                ]
+                                .spacing(5),
+                            ),
                         ]
-                        .spacing(60),
+                        .spacing(10),
                         row![
-                            text("Amount accrued:").width(Length::Fixed(120.0)),
-                            text(format!("GHS {}", compute_accrued_amount(student)))
+                            container(svg::Svg::new(payments_handle.clone()).width(22).height(22))
+                                .align_y(Alignment::Center)
+                                .height(Length::Fixed(30.0)),
+                            container(
+                                column![
+                                    text("Amount accrued")
+                                        .font(Font {
+                                            weight: font::Weight::Normal,
+                                            ..Default::default()
+                                        })
+                                        .size(12),
+                                    text(format!("GHS {}", compute_accrued_amount(student)))
+                                ]
+                                .spacing(5)
+                            ),
                         ]
-                        .spacing(60),
-                        container(
-                            row![
-                                container(mouse_area(row![
-                                    svg::Svg::new(plus_handle.clone()).width(20).height(20),
-                                    text("Add session").size(14)
-                                ]))
-                                .align_left(Length::Fill),
-                                container(mouse_area(row![
-                                    svg::Svg::new(edit_handle.clone()).width(20).height(20),
-                                    text("Edit").size(14)
-                                ]))
-                                .align_right(Length::Fill)
-                            ]
-                            .spacing(50),
-                        )
-                        .align_bottom(Length::Fill)
-                    ])
-                    .width(Length::Fixed(400.0))
-                    .height(Length::Fixed(250.0))
+                        .spacing(10),
+                    ]
+                    .spacing(40);
+
+                    let action_section = container(
+                        row![
+                            button(
+                                container(
+                                    row![
+                                        svg::Svg::new(plus_handle.clone())
+                                            .width(16)
+                                            .height(18)
+                                            .style(|theme: &Theme, _status: svg::Status| {
+                                                let palette = theme.extended_palette();
+                                                svg::Style {
+                                                    color: Some(Color::WHITE),
+                                                    // color: Some(palette.background.weak.text),
+                                                }
+                                            }),
+                                        text("Add Session")
+                                            .size(12)
+                                            .font(Font {
+                                                weight: font::Weight::Semibold,
+                                                ..Default::default()
+                                            })
+                                            .style(|theme: &Theme| {
+                                                let palette = theme.extended_palette();
+                                                text::Style {
+                                                    color: Some(Color::WHITE),
+                                                    // color: Some(palette.background.weak.text),
+                                                }
+                                            }),
+                                    ]
+                                    .spacing(5)
+                                    .align_y(Center)
+                                )
+                                .align_x(Center)
+                            )
+                            .style(|theme: &Theme, _status: button::Status| {
+                                let palette = theme.extended_palette();
+                                button::Style {
+                                    background: Some(Background::Color(Color::BLACK)),
+                                    // background: Some(Background::Color(palette.primary.base.color)),
+                                    border: Border {
+                                        radius: 10.0.into(),
+                                        ..Default::default()
+                                    },
+                                    ..Default::default()
+                                }
+                            })
+                            .padding(10)
+                            .width(Length::FillPortion(2))
+                            .height(Length::Fixed(40.0)),
+                            button(
+                                container(
+                                    row![
+                                        svg::Svg::new(edit_handle.clone())
+                                            .width(16)
+                                            .height(18)
+                                            .width(16)
+                                            .height(18)
+                                            .style(|theme: &Theme, _status: svg::Status| {
+                                                let palette = theme.extended_palette();
+                                                svg::Style {
+                                                    color: Some(palette.background.weak.text),
+                                                }
+                                            }),
+                                        text("Edit").size(12).font(Font {
+                                            weight: font::Weight::Semibold,
+                                            ..Default::default()
+                                        })
+                                    ]
+                                    .spacing(5)
+                                    .align_y(Center)
+                                )
+                                .align_x(Center)
+                            )
+                            .style(|theme: &Theme, _status: button::Status| {
+                                let palette = theme.extended_palette();
+                                button::Style {
+                                    background: Some(Background::Color(
+                                        palette.background.weak.color,
+                                    )),
+                                    border: Border {
+                                        radius: 10.0.into(),
+                                        ..Default::default()
+                                    },
+                                    ..Default::default()
+                                }
+                            })
+                            .padding(10)
+                            .width(Length::FillPortion(1))
+                            .height(Length::Fixed(40.0)),
+                        ]
+                        .spacing(10),
+                    )
+                    .height(Length::Fixed(150.0))
+                    .width(Length::Fill)
+                    .align_y(Alignment::Start);
+
+                    let card = container(
+                        column![
+                            title_section,
+                            column![main_section, action_section].spacing(30),
+                        ]
+                        .spacing(20),
+                    )
+                    .width(Length::Fixed(300.0))
+                    .height(Length::Fixed(500.0))
                     .padding([10, 20])
-                    .style(|theme: &Theme| {
+                    .style(move |theme: &Theme| {
                         let palette = theme.extended_palette();
 
                         container::Style {
@@ -230,13 +479,28 @@ impl TutoringManager {
                                 radius: 10.0.into(),
                                 ..Default::default()
                             },
+                            shadow: if is_hovered {
+                                Shadow {
+                                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.25),
+                                    offset: Vector::new(0.4, 0.0),
+                                    blur_radius: 12.0,
+                                }
+                            } else {
+                                Shadow::default()
+                            },
                             ..Default::default()
                         }
-                    })
-                    .into()
+                    });
+
+                    mouse_area(card)
+                        .interaction(Interaction::Pointer)
+                        .on_enter(Message::StudentCardHovered(Some(index)))
+                        .on_exit(Message::StudentCardHovered(None))
+                        .into()
+                        
                 });
 
-                container(Row::new().extend(students).spacing(10))
+                container(Row::new().extend(card_contents).spacing(30))
             };
 
             let main_container =
@@ -295,10 +559,12 @@ enum Message {
     // Main app
     NavigateToScreen(SideMenuItem),
     MenuItemHovered(Option<SideMenuItem>),
+    SideMenuHovered(bool),
 
     // Student Manager
     ShowAddStudentModal,
     CloseAddStudentModal,
+    StudentCardHovered(Option<usize>),
 }
 
 // CUSTOM COMPONENTS
@@ -432,10 +698,10 @@ fn menu_icon_style(is_item_hovered: bool) -> svg::Style {
     if is_item_hovered {
         svg::Style {
             color: Some(Color {
-                r: 0.3,
-                g: 0.6,
+                r: 0.1,
+                g: 0.1,
                 b: 1.0,
-                a: 0.5,
+                a: 0.9,
             }),
         }
     } else {
@@ -443,43 +709,56 @@ fn menu_icon_style(is_item_hovered: bool) -> svg::Style {
     }
 }
 
-fn menu_item_container(item: svg::Svg, item_text: String, is_item_selected: bool, is_item_hovered: bool) -> Container<Message> {
+fn menu_item_container(
+    item: svg::Svg,
+    item_text: String,
+    is_item_selected: bool,
+    is_item_hovered: bool,
+    is_side_menu_hovered: bool,
+    container_height: f32,
+) -> Container<Message> {
     let content = if is_item_hovered {
         let text_item_widget = text(format!("{}", item_text))
             .font(Font {
-                weight: font::Weight::Thin,
+                weight: font::Weight::Light,
                 ..Default::default()
             })
             .size(11)
-            .style(|_theme: &Theme| {
-                text::Style {
-                    color: Some(Color {
-                        r: 0.3,
-                        g: 0.6,
-                        b: 1.0,
-                        a: 0.5,
-                    }),
-                }
+            .style(|_theme: &Theme| text::Style {
+                color: Some(Color {
+                    r: 0.1,
+                    g: 0.1,
+                    b: 1.0,
+                    a: 0.9,
+                }),
             });
-        column![item, text_item_widget].spacing(5)
+        column![item, text_item_widget].align_x(Center).spacing(5)
+    } else if is_side_menu_hovered {
+        let text_item_widget = text(format!("{}", item_text))
+            .font(Font {
+                weight: font::Weight::Light,
+                ..Default::default()
+            })
+            .size(11);
+        column![item, text_item_widget].align_x(Center).spacing(5)
     } else {
         column![item,].spacing(5)
     };
 
     container(content)
         .center_x(Length::Fill)
-        .center_y(Length::Fixed(50.0))
-        .style(move |theme: &Theme| 
+        .center_y(Length::Fixed(container_height))
+        .style(move |theme: &Theme| {
             if is_item_selected {
                 container::Style {
-                    text_color: Some(Color::from_rgba(1.0, 1.0, 1.0, 0.5)), 
-                    background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.5))), 
+                    text_color: Some(Color::from_rgba(1.0, 1.0, 1.0, 0.5)),
+                    background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.5))),
                     ..Default::default()
                 }
             } else {
                 container::transparent(theme)
             }
-        )
+        })
 }
 
 // MOCK DATA

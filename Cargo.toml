@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 chrono = "0.4.42"
-iced = { version = "0.13.1", features = ["advanced", "svg"] }
+iced = { version = "0.13.1", features = ["advanced", "canvas", "svg"] }
+lilt = "0.8.1"

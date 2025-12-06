@@ -3,15 +3,17 @@ use iced::advanced::graphics::core::font;
 use iced::mouse::Interaction;
 use iced::widget::{
     Column, Container, Row, button, column, container, focus_next, mouse_area, row, stack, svg,
-    text, text_input,
+    text, text_input, canvas,
 };
 use iced::{
     Alignment, Background, Border, Center, Color, Element, Font, Length, Shadow, Task, Theme,
-    Vector,
+    Vector, Renderer, Rectangle,
 };
+use lilt::{Animated, Easing};
+use std::time::Instant;
 
 // =========================================
-// REUSABLE UI components
+// DOMAIN MODELS AND LOGIC 
 // =========================================
 struct Student {
     name: PersonalName,
@@ -127,6 +129,8 @@ struct State {
     // Side Menu Layout
     side_menu_width: f32,
     menu_item_container_height: f32,
+    side_menu_target_width: f32,
+    animated_menu_width_change: Animated<bool, Instant>,
     show_menu_text: bool,
 
     // Dashboard State
@@ -184,6 +188,8 @@ impl TutoringManager {
                     side_menu_hovered: false,
 
                     side_menu_width: 50.0,
+                    side_menu_target_width: 50.0,
+                    animated_menu_width_change: Animated::new(false).duration(300.).easing(Easing::EaseOut),
                     menu_item_container_height: 50.0,
                     show_menu_text: false,
 
@@ -256,11 +262,6 @@ impl TutoringManager {
 
     fn handle_menu_item_hover(&mut self, menu_item_opt: Option<SideMenuItem>) -> Task<Message> {
         self.state.hovered_menu_item = menu_item_opt.clone();
-        self.state.side_menu_width = match menu_item_opt {
-            Some(SideMenuItem::Dashboard) => 90.0,
-            Some(SideMenuItem::StudentManager) => 90.0,
-            None => 50.0,
-        };
         Task::none()
     }
 
@@ -804,6 +805,8 @@ impl TutoringManager {
 
         card_list
     }
+
+    // fn view_trend_chart
 }
 
 // =========================================
@@ -947,6 +950,44 @@ fn menu_item_container(
             }
         })
 }
+
+
+// =========================================
+// CUSTOM COMPONENTS
+// =========================================
+struct IncomeData {
+    potential: f32,
+    actual: f32,
+}
+
+struct GroupedBarChart {
+    data: Vec<IncomeData>,
+    cache: canvas::Cache,
+}
+
+impl GroupedBarChart {
+    fn new(data: Vec<IncomeData>) -> Self {
+        Self {
+            data,
+            cache: canvas::Cache::new(),
+        }
+    }
+}
+
+// impl<Message> canvas::Program<Message> for GroupedBarChart {
+//     type State = ();
+//     
+//     fn draw(
+//             &self,
+//             _state: &Self::State,
+//             renderer: &Renderer,
+//             _theme: &Theme,
+//             bounds: Rectangle,
+//             _cursor: iced::advanced::mouse::Cursor,
+//         ) -> Vec<canvas::Geometry<Renderer>> {
+//         
+//     }
+// }
 
 // =========================================
 // STYLES

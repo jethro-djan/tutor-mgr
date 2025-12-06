@@ -2,18 +2,19 @@ use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Weekday};
 use iced::advanced::graphics::core::font;
 use iced::mouse::Interaction;
 use iced::widget::{
-    Column, Container, Row, button, column, container, focus_next, mouse_area, row, stack, svg,
-    text, text_input, canvas,
+    Column, Container, Row, button, canvas, column, container, focus_next, mouse_area, row, stack,
+    svg, text, text_input,
 };
+use iced::window::frames;
 use iced::{
-    Alignment, Background, Border, Center, Color, Element, Font, Length, Shadow, Task, Theme,
-    Vector, Renderer, Rectangle,
+    Alignment, Background, Border, Center, Color, Element, Font, Length, Rectangle, Renderer,
+    Shadow, Subscription, Task, Theme, Vector,
 };
 use lilt::{Animated, Easing};
 use std::time::Instant;
 
 // =========================================
-// DOMAIN MODELS AND LOGIC 
+// DOMAIN MODELS AND LOGIC
 // =========================================
 struct Student {
     name: PersonalName,
@@ -127,9 +128,6 @@ struct State {
     side_menu_hovered: bool,
 
     // Side Menu Layout
-    side_menu_width: f32,
-    menu_item_container_height: f32,
-    side_menu_target_width: f32,
     animated_menu_width_change: Animated<bool, Instant>,
     show_menu_text: bool,
 
@@ -164,8 +162,9 @@ enum Message {
     SideMenuHovered(bool),
 
     // Dashboard
-    // DashboardCardHovered(bool),
     DashboardCardHovered(Option<usize>),
+    AnimateMenuWidthChange,
+    Tick,
 
     // Student Manager
     ShowAddStudentModal,
@@ -187,10 +186,9 @@ impl TutoringManager {
                     hovered_menu_item: None,
                     side_menu_hovered: false,
 
-                    side_menu_width: 50.0,
-                    side_menu_target_width: 50.0,
-                    animated_menu_width_change: Animated::new(false).duration(300.).easing(Easing::EaseOut),
-                    menu_item_container_height: 50.0,
+                    animated_menu_width_change: Animated::new(false)
+                        .duration(300.)
+                        .easing(Easing::EaseInOut),
                     show_menu_text: false,
 
                     dashboard_card_hovered: false,
@@ -210,7 +208,17 @@ impl TutoringManager {
         String::from("Tutor Manager")
     }
 
+    fn subscription(&self) -> Subscription<Message> {
+        let now = Instant::now();
+        if self.state.animated_menu_width_change.in_progress(now) {
+            frames().map(|_| Message::Tick)
+        } else {
+            Subscription::none()
+        }
+    }
+
     fn update(&mut self, message: Message) -> Task<Message> {
+        let now = Instant::now();
         match message {
             // Navigation Messages
             Message::NavigateToScreen(menu_item) => self.handle_navigation(menu_item),
@@ -218,13 +226,17 @@ impl TutoringManager {
             Message::SideMenuHovered(is_hovered) => self.handle_side_menu_hover(is_hovered),
 
             // Dashboard Messages
-            // Message::DashboardCardHovered(is_hovered) => {
-            //     self.handle_dashboard_card_hover(is_hovered)
-            // }
             Message::DashboardCardHovered(card_index) => {
                 self.state.hovered_dashboard_card = card_index;
                 Task::none()
             }
+            Message::AnimateMenuWidthChange => {
+                self.state
+                    .animated_menu_width_change
+                    .transition(!self.state.animated_menu_width_change.value, now);
+                Task::none()
+            }
+            Message::Tick => Task::none(),
 
             // StudentManager Messages
             Message::ShowAddStudentModal => self.handle_show_add_student_modal(),
@@ -234,7 +246,7 @@ impl TutoringManager {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let main_content = container(self.view_current_screen()).padding([50,20]);
+        let main_content = container(self.view_current_screen()).padding([50, 20]);
 
         let layout = row![self.view_side_menu(), main_content,].spacing(20);
 
@@ -266,17 +278,19 @@ impl TutoringManager {
     }
 
     fn handle_side_menu_hover(&mut self, is_hovered: bool) -> Task<Message> {
+        let now = Instant::now();
+
+        self.state
+            .animated_menu_width_change
+            .transition(is_hovered, now);
         if is_hovered {
-            self.state.menu_item_container_height = 90.0;
-            self.state.side_menu_width = 90.0;
             self.state.side_menu_hovered = true;
             self.state.show_menu_text = true;
         } else {
-            self.state.menu_item_container_height = 50.0;
-            self.state.side_menu_width = 50.0;
             self.state.side_menu_hovered = false;
             self.state.show_menu_text = false;
         }
+
         Task::none()
     }
 
@@ -345,8 +359,16 @@ impl TutoringManager {
 
         let summary_cards = row(card_data.iter().enumerate().map(|(index, card)| {
             let is_hovered = card.hovered_dashboard == Some(index);
-            metric_card(card.title, card.value, card.trend, is_hovered, Some(index), card.variant)
-        })).spacing(10);
+            metric_card(
+                card.title,
+                card.value,
+                card.trend,
+                is_hovered,
+                Some(index),
+                card.variant,
+            )
+        }))
+        .spacing(10);
 
         let attendance_trend_chart = container(text("Trend chart"));
         let potential_vs_actual_chart = container(text("Bar chart"));
@@ -442,7 +464,6 @@ impl TutoringManager {
             .style(move |_theme: &Theme, _status: svg::Status| {
                 styles::menu_icon_style(is_dash_hovered)
             });
-        let dash_item_text = String::from("Dashboard");
 
         let student_icon = svg::Svg::new(icons::student_manager().clone())
             .width(25)
@@ -450,40 +471,61 @@ impl TutoringManager {
             .style(move |_theme: &Theme, _status: svg::Status| {
                 styles::menu_icon_style(is_student_hovered)
             });
-        let student_item_text = String::from("Student Manager");
+
+        let now = Instant::now();
 
         mouse_area(
             container(
                 column![
-                    mouse_area(menu_item_container(
-                        dash_icon,
-                        dash_item_text,
-                        is_dash_selected,
-                        is_dash_hovered,
-                        self.state.side_menu_hovered,
-                        self.state.menu_item_container_height,
-                    ))
-                    .interaction(Interaction::Pointer)
-                    .on_press(Message::NavigateToScreen(SideMenuItem::Dashboard))
-                    .on_enter(Message::MenuItemHovered(Some(SideMenuItem::Dashboard)))
-                    .on_exit(Message::MenuItemHovered(None)),
-                    mouse_area(menu_item_container(
-                        student_icon,
-                        student_item_text,
-                        is_student_selected,
-                        is_student_hovered,
-                        self.state.side_menu_hovered,
-                        self.state.menu_item_container_height,
-                    ))
-                    .interaction(Interaction::Pointer)
-                    .on_press(Message::NavigateToScreen(SideMenuItem::StudentManager))
-                    .on_enter(Message::MenuItemHovered(Some(SideMenuItem::StudentManager)))
-                    .on_exit(Message::MenuItemHovered(None)),
+                    container(svg::Svg::new(icons::logo()).width(30).height(30))
+                        .center_x(Length::Fill),
+                    column![
+                        mouse_area(menu_item_container(
+                            dash_icon,
+                            "Dashboard",
+                            is_dash_selected,
+                            is_dash_hovered,
+                            self.state.side_menu_hovered,
+                            &self.state.animated_menu_width_change,
+                            now,
+                        ))
+                        .interaction(Interaction::Pointer)
+                        .on_press(Message::NavigateToScreen(SideMenuItem::Dashboard))
+                        .on_enter(Message::MenuItemHovered(Some(SideMenuItem::Dashboard)))
+                        .on_exit(Message::MenuItemHovered(None)),
+                        mouse_area(menu_item_container(
+                            student_icon,
+                            "Student Manager",
+                            is_student_selected,
+                            is_student_hovered,
+                            self.state.side_menu_hovered,
+                            &self.state.animated_menu_width_change,
+                            now,
+                        ))
+                        .interaction(Interaction::Pointer)
+                        .on_press(Message::NavigateToScreen(SideMenuItem::StudentManager))
+                        .on_enter(Message::MenuItemHovered(Some(SideMenuItem::StudentManager)))
+                        .on_exit(Message::MenuItemHovered(None)),
+                    ]
+                    .spacing(10),
+                    container(
+                        column![
+                            container(svg::Svg::new(icons::settings()).width(25).height(25))
+                                .center_x(Length::Fill),
+                            container(svg::Svg::new(icons::logout()).width(25).height(25))
+                                .center_x(Length::Fill),
+                        ]
+                        .spacing(10)
+                    )
+                    .align_bottom(Length::Fill)
                 ]
                 .spacing(20),
             )
-            .padding([250, 0])
-            .width(self.state.side_menu_width)
+            .width(
+                self.state
+                    .animated_menu_width_change
+                    .animate_bool(70.0, 180.0, now),
+            )
             .height(Length::Fill)
             .style(|theme: &Theme| {
                 let palette = theme.extended_palette();
@@ -899,45 +941,48 @@ fn metric_card<'a>(
         .into()
 }
 
-fn menu_item_container(
-    item: svg::Svg,
-    item_text: String,
+fn menu_item_container<'a>(
+    item: svg::Svg<'a>,
+    item_text: &'a str,
     is_item_selected: bool,
     is_item_hovered: bool,
     is_side_menu_hovered: bool,
-    container_height: f32,
-) -> Container<Message> {
-    let content = if is_item_hovered {
-        let text_item_widget = text(format!("{}", item_text))
+    animated_container_height: &Animated<bool, Instant>,
+    now: Instant,
+) -> Container<'a, Message> {
+    let create_text = move |use_blue: bool| {
+        text(item_text)
             .font(Font {
                 weight: font::Weight::Light,
                 ..Default::default()
             })
             .size(11)
-            .style(|_theme: &Theme| text::Style {
-                color: Some(Color {
-                    r: 0.1,
-                    g: 0.1,
-                    b: 1.0,
-                    a: 0.9,
-                }),
-            });
-        column![item, text_item_widget].align_x(Center).spacing(5)
-    } else if is_side_menu_hovered {
-        let text_item_widget = text(format!("{}", item_text))
-            .font(Font {
-                weight: font::Weight::Light,
-                ..Default::default()
+            .style(move |_theme: &Theme| {
+                if use_blue {
+                    text::Style {
+                        color: Some(Color { r: 0.1, g: 0.1, b: 1.0, a: 0.9, }),
+                    }
+                } else {
+                    text::Style::default()
+                }
             })
-            .size(11);
-        column![item, text_item_widget].align_x(Center).spacing(5)
+        };
+
+    let content = if is_item_hovered || is_side_menu_hovered {
+        row![item, create_text(is_item_hovered)]
+            .align_y(Center)
+            .spacing(10)
     } else {
-        column![item,].spacing(5)
+        row![item,].spacing(10)
     };
 
     container(content)
-        .center_x(Length::Fill)
-        .center_y(Length::Fixed(container_height))
+        .width(Length::Fill)
+        .align_left(Length::Fill)
+        .center_y(Length::Fixed(
+            animated_container_height.animate_bool(40.0, 60.0, now),
+        ))
+        .padding([0, 20])
         .style(move |theme: &Theme| {
             if is_item_selected {
                 container::Style {
@@ -950,7 +995,6 @@ fn menu_item_container(
             }
         })
 }
-
 
 // =========================================
 // CUSTOM COMPONENTS
@@ -976,7 +1020,7 @@ impl GroupedBarChart {
 
 // impl<Message> canvas::Program<Message> for GroupedBarChart {
 //     type State = ();
-//     
+//
 //     fn draw(
 //             &self,
 //             _state: &Self::State,
@@ -985,7 +1029,7 @@ impl GroupedBarChart {
 //             bounds: Rectangle,
 //             _cursor: iced::advanced::mouse::Cursor,
 //         ) -> Vec<canvas::Geometry<Renderer>> {
-//         
+//
 //     }
 // }
 
@@ -1070,6 +1114,9 @@ mod icons {
     static ARROW_DOWN: OnceLock<svg::Handle> = OnceLock::new();
     static ARROW_UP: OnceLock<svg::Handle> = OnceLock::new();
     static STUDENT: OnceLock<svg::Handle> = OnceLock::new();
+    static LOGO: OnceLock<svg::Handle> = OnceLock::new();
+    static SETTINGS: OnceLock<svg::Handle> = OnceLock::new();
+    static LOGOUT: OnceLock<svg::Handle> = OnceLock::new();
 
     fn icon_path(name: &str) -> String {
         format!("{}/resources/icons/{}", env!("CARGO_MANIFEST_DIR"), name)
@@ -1166,6 +1213,31 @@ mod icons {
             })
             .clone()
     }
+
+    pub fn logo() -> svg::Handle {
+        LOGO.get_or_init(|| svg::Handle::from_path(icon_path("nhoma_short_logo.svg")))
+            .clone()
+    }
+
+    pub fn settings() -> svg::Handle {
+        SETTINGS
+            .get_or_init(|| {
+                svg::Handle::from_path(icon_path(
+                    "settings_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg",
+                ))
+            })
+            .clone()
+    }
+
+    pub fn logout() -> svg::Handle {
+        LOGOUT
+            .get_or_init(|| {
+                svg::Handle::from_path(icon_path(
+                    "logout_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg",
+                ))
+            })
+            .clone()
+    }
 }
 
 // =========================================
@@ -1237,5 +1309,6 @@ fn main() -> iced::Result {
         TutoringManager::update,
         TutoringManager::view,
     )
+    .subscription(TutoringManager::subscription)
     .run_with(TutoringManager::new)
 }

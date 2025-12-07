@@ -1,14 +1,15 @@
-use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Weekday};
+use chrono::{DateTime, Datelike, Duration, Local, Month, NaiveDate, TimeZone, Weekday};
 use iced::advanced::graphics::core::font;
 use iced::mouse::Interaction;
+use iced::widget::canvas::{self, Frame, Path, Stroke};
 use iced::widget::{
-    Column, Container, Row, button, canvas, column, container, focus_next, mouse_area, row, stack,
+    Canvas, Column, Container, Row, button, column, container, focus_next, mouse_area, row, stack,
     svg, text, text_input,
 };
 use iced::window::frames;
 use iced::{
-    Alignment, Background, Border, Center, Color, Element, Font, Length, Rectangle, Renderer,
-    Shadow, Subscription, Task, Theme, Vector,
+    Alignment, Background, Border, Center, Color, Element, Font, Length, Point, Rectangle,
+    Renderer, Shadow, Size, Subscription, Task, Theme, Vector,
 };
 use lilt::{Animated, Easing};
 use std::time::Instant;
@@ -129,11 +130,13 @@ struct State {
 
     // Side Menu Layout
     animated_menu_width_change: Animated<bool, Instant>,
+    animated_menu_item_height_change: Animated<bool, Instant>,
     show_menu_text: bool,
 
     // Dashboard State
-    dashboard_card_hovered: bool,
     hovered_dashboard_card: Option<usize>,
+    barchart: GroupedBarChart,
+    linechart: LineChart,
 
     // StudentManager State
     search_query: String,
@@ -146,12 +149,16 @@ struct State {
 enum Screen {
     Dashboard,
     StudentManager,
+    Settings,
+    Logout,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 enum SideMenuItem {
     Dashboard,
     StudentManager,
+    Settings,
+    Logout,
 }
 
 #[derive(Debug, Clone)]
@@ -163,7 +170,7 @@ enum Message {
 
     // Dashboard
     DashboardCardHovered(Option<usize>),
-    AnimateMenuWidthChange,
+    // AnimateMenuWidthChange,
     Tick,
 
     // Student Manager
@@ -178,6 +185,9 @@ enum Message {
 
 impl TutoringManager {
     fn new() -> (Self, Task<Message>) {
+        let income_data = mock_income_data();
+        let attendance_data = mock_attendance_data();
+
         (
             Self {
                 current_screen: Screen::Dashboard,
@@ -189,14 +199,18 @@ impl TutoringManager {
                     animated_menu_width_change: Animated::new(false)
                         .duration(300.)
                         .easing(Easing::EaseInOut),
+                    animated_menu_item_height_change: Animated::new(false)
+                        .duration(200.)
+                        .easing(Easing::EaseInOut),
                     show_menu_text: false,
 
-                    dashboard_card_hovered: false,
                     hovered_dashboard_card: None,
+                    barchart: GroupedBarChart::default(income_data),
+                    linechart: LineChart::default(attendance_data),
 
                     search_query: String::new(),
                     show_add_student_modal: false,
-                    students: mock_data(),
+                    students: mock_student_data(),
                     hovered_student_card: None,
                 },
             },
@@ -230,12 +244,12 @@ impl TutoringManager {
                 self.state.hovered_dashboard_card = card_index;
                 Task::none()
             }
-            Message::AnimateMenuWidthChange => {
-                self.state
-                    .animated_menu_width_change
-                    .transition(!self.state.animated_menu_width_change.value, now);
-                Task::none()
-            }
+            // Message::AnimateMenuWidthChange => {
+            //     self.state
+            //         .animated_menu_width_change
+            //         .transition(!self.state.animated_menu_width_change.value, now);
+            //     Task::none()
+            // }
             Message::Tick => Task::none(),
 
             // StudentManager Messages
@@ -257,6 +271,8 @@ impl TutoringManager {
         match self.current_screen {
             Screen::Dashboard => self.view_dashboard(),
             Screen::StudentManager => self.view_student_manager(),
+            Screen::Settings => self.view_settings(),
+            Screen::Logout => self.view_logout(),
         }
     }
 }
@@ -268,6 +284,8 @@ impl TutoringManager {
         self.current_screen = match menu_item {
             SideMenuItem::Dashboard => Screen::Dashboard,
             SideMenuItem::StudentManager => Screen::StudentManager,
+            SideMenuItem::Settings => Screen::Settings,
+            SideMenuItem::Logout => Screen::Logout,
         };
         Task::none()
     }
@@ -291,11 +309,6 @@ impl TutoringManager {
             self.state.show_menu_text = false;
         }
 
-        Task::none()
-    }
-
-    fn handle_dashboard_card_hover(&mut self, is_hovered: bool) -> Task<Message> {
-        self.state.dashboard_card_hovered = is_hovered;
         Task::none()
     }
 
@@ -357,7 +370,12 @@ impl TutoringManager {
             },
         ];
 
-        let summary_cards = row(card_data.iter().enumerate().map(|(index, card)| {
+        let summary_section_title = text("Summary").size(14).font(Font {
+            weight: font::Weight::Medium,
+            ..Default::default()
+        });
+
+        let summary_cards_row = row(card_data.iter().enumerate().map(|(index, card)| {
             let is_hovered = card.hovered_dashboard == Some(index);
             metric_card(
                 card.title,
@@ -368,19 +386,34 @@ impl TutoringManager {
                 card.variant,
             )
         }))
-        .spacing(10);
+        .spacing(16);
 
-        let attendance_trend_chart = container(text("Trend chart"));
-        let potential_vs_actual_chart = container(text("Bar chart"));
+        let summary_section = column![
+            summary_section_title,
+            container(summary_cards_row)
+                .align_x(Center)
+                .max_width(900),
+        ]
+        .spacing(12);
 
-        let graphs = row![attendance_trend_chart, potential_vs_actual_chart,];
+        let attendance_trend_chart = self.view_trend_chart();
+        let potential_vs_actual_chart = self.view_grouped_chart();
+
+        let graphs_section_title = text("Analytics").size(14).font(Font {
+            weight: font::Weight::Medium,
+            ..Default::default()
+        });
+        let graphs = row![attendance_trend_chart, potential_vs_actual_chart,].spacing(16);
+
+        let graph_section = column![graphs_section_title, graphs,].spacing(12);
 
         container(
             Column::new()
-                .spacing(30)
+                .spacing(40)
+                .padding(20)
                 .push(self.view_page_header("Dashboard"))
-                .push(summary_cards)
-                .push(graphs),
+                .push(summary_section)
+                .push(graph_section),
         )
         .width(Length::Fill)
         .height(Length::Fill)
@@ -422,6 +455,14 @@ impl TutoringManager {
             main_container.into()
         }
     }
+
+    fn view_settings(&self) -> Element<'_, Message> {
+        column![self.view_page_header("Settings"),].into()
+    }
+
+    fn view_logout(&self) -> Element<'_, Message> {
+        column![self.view_page_header("Logout"),].into()
+    }
 }
 
 // Component views
@@ -439,37 +480,35 @@ impl TutoringManager {
     }
 
     fn view_side_menu(&self) -> Element<'_, Message> {
-        let is_dash_selected = match self.state.selected_menu_item {
-            SideMenuItem::Dashboard => true,
-            SideMenuItem::StudentManager => false,
-        };
-        let is_student_selected = match self.state.selected_menu_item {
-            SideMenuItem::Dashboard => false,
-            SideMenuItem::StudentManager => true,
-        };
-        let is_dash_hovered = match self.state.hovered_menu_item {
-            Some(SideMenuItem::Dashboard) => true,
-            Some(SideMenuItem::StudentManager) => false,
-            None => false,
-        };
-        let is_student_hovered = match self.state.hovered_menu_item {
-            Some(SideMenuItem::Dashboard) => false,
-            Some(SideMenuItem::StudentManager) => true,
-            None => false,
-        };
+        let is_selected = |item: SideMenuItem| self.state.selected_menu_item == item;
+        let is_hovered = |item: SideMenuItem| self.state.hovered_menu_item == Some(item);
 
         let dash_icon = svg::Svg::new(icons::dashboard().clone())
             .width(25)
             .height(25)
             .style(move |_theme: &Theme, _status: svg::Status| {
-                styles::menu_icon_style(is_dash_hovered)
+                styles::menu_icon_style(is_hovered(SideMenuItem::Dashboard))
             });
 
         let student_icon = svg::Svg::new(icons::student_manager().clone())
             .width(25)
             .height(25)
             .style(move |_theme: &Theme, _status: svg::Status| {
-                styles::menu_icon_style(is_student_hovered)
+                styles::menu_icon_style(is_hovered(SideMenuItem::StudentManager))
+            });
+
+        let settings_icon = svg::Svg::new(icons::settings().clone())
+            .width(25)
+            .height(25)
+            .style(move |_theme: &Theme, _status: svg::Status| {
+                styles::menu_icon_style(is_hovered(SideMenuItem::Settings))
+            });
+
+        let logout_icon = svg::Svg::new(icons::logout().clone())
+            .width(25)
+            .height(25)
+            .style(move |_theme: &Theme, _status: svg::Status| {
+                styles::menu_icon_style(is_hovered(SideMenuItem::Logout))
             });
 
         let now = Instant::now();
@@ -477,16 +516,15 @@ impl TutoringManager {
         mouse_area(
             container(
                 column![
-                    container(svg::Svg::new(icons::logo()).width(30).height(30))
-                        .center_x(Length::Fill),
+                    self.view_logo(),
                     column![
                         mouse_area(menu_item_container(
                             dash_icon,
                             "Dashboard",
-                            is_dash_selected,
-                            is_dash_hovered,
+                            is_selected(SideMenuItem::Dashboard),
+                            is_hovered(SideMenuItem::Dashboard),
                             self.state.side_menu_hovered,
-                            &self.state.animated_menu_width_change,
+                            &self.state.animated_menu_item_height_change,
                             now,
                         ))
                         .interaction(Interaction::Pointer)
@@ -496,10 +534,10 @@ impl TutoringManager {
                         mouse_area(menu_item_container(
                             student_icon,
                             "Student Manager",
-                            is_student_selected,
-                            is_student_hovered,
+                            is_selected(SideMenuItem::StudentManager),
+                            is_hovered(SideMenuItem::StudentManager),
                             self.state.side_menu_hovered,
-                            &self.state.animated_menu_width_change,
+                            &self.state.animated_menu_item_height_change,
                             now,
                         ))
                         .interaction(Interaction::Pointer)
@@ -507,20 +545,43 @@ impl TutoringManager {
                         .on_enter(Message::MenuItemHovered(Some(SideMenuItem::StudentManager)))
                         .on_exit(Message::MenuItemHovered(None)),
                     ]
-                    .spacing(10),
+                    .spacing(5),
                     container(
                         column![
-                            container(svg::Svg::new(icons::settings()).width(25).height(25))
-                                .center_x(Length::Fill),
-                            container(svg::Svg::new(icons::logout()).width(25).height(25))
-                                .center_x(Length::Fill),
+                            mouse_area(menu_item_container(
+                                settings_icon,
+                                "Settings",
+                                is_selected(SideMenuItem::Settings),
+                                is_hovered(SideMenuItem::Settings),
+                                self.state.side_menu_hovered,
+                                &self.state.animated_menu_item_height_change,
+                                now,
+                            ))
+                            .interaction(Interaction::Pointer)
+                            .on_press(Message::NavigateToScreen(SideMenuItem::Settings))
+                            .on_enter(Message::MenuItemHovered(Some(SideMenuItem::Settings)))
+                            .on_exit(Message::MenuItemHovered(None)),
+                            mouse_area(menu_item_container(
+                                logout_icon,
+                                "Logout",
+                                is_selected(SideMenuItem::Logout),
+                                is_hovered(SideMenuItem::Logout),
+                                self.state.side_menu_hovered,
+                                &self.state.animated_menu_item_height_change,
+                                now,
+                            ))
+                            .interaction(Interaction::Pointer)
+                            .on_press(Message::NavigateToScreen(SideMenuItem::Logout))
+                            .on_enter(Message::MenuItemHovered(Some(SideMenuItem::Logout)))
+                            .on_exit(Message::MenuItemHovered(None)),
                         ]
-                        .spacing(10)
+                        .spacing(5)
                     )
                     .align_bottom(Length::Fill)
                 ]
                 .spacing(20),
             )
+            .padding([20, 0])
             .width(
                 self.state
                     .animated_menu_width_change
@@ -546,6 +607,27 @@ impl TutoringManager {
         .on_enter(Message::SideMenuHovered(true))
         .on_exit(Message::SideMenuHovered(false))
         .into()
+    }
+
+    fn view_logo(&self) -> Element<'_, Message> {
+        let logo_handle = if self.state.side_menu_hovered {
+            icons::logo_expanded()
+        } else {
+            icons::logo()
+        };
+
+        let logo = svg(logo_handle)
+            .width(if self.state.side_menu_hovered {
+                140
+            } else {
+                40
+            })
+            .height(40);
+
+        container(logo)
+            .center_x(Length::Fill)
+            .padding([10, 0])
+            .into()
     }
 
     fn view_search_bar(
@@ -848,7 +930,53 @@ impl TutoringManager {
         card_list
     }
 
-    // fn view_trend_chart
+    fn view_grouped_chart(&self) -> Element<'_, Message> {
+        let chart = Canvas::new(&self.state.barchart)
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        container(column![
+            text!("Current Month: Actual vs Potential Earnings").size(20),
+            chart
+        ])
+        .width(Length::FillPortion(3))
+        .height(Length::Fixed(400.0))
+        .padding(20)
+        .style(|theme: &Theme| {
+            let palette = theme.extended_palette();
+
+            container::Style {
+                background: Some(palette.background.weak.color.into()),
+                // border: (),
+                ..Default::default()
+            }
+        })
+        .into()
+    }
+
+    fn view_trend_chart(&self) -> Element<'_, Message> {
+        let chart = Canvas::new(&self.state.linechart)
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        container(column![
+            text!("Attendance Rate: Last 3 Months").size(20),
+            chart
+        ])
+        .width(Length::FillPortion(2))
+        .height(Length::Fixed(400.0))
+        .padding(20)
+        .style(|theme: &Theme| {
+            let palette = theme.extended_palette();
+
+            container::Style {
+                background: Some(palette.background.weak.color.into()),
+                // border: (),
+                ..Default::default()
+            }
+        })
+        .into()
+    }
 }
 
 // =========================================
@@ -950,26 +1078,36 @@ fn menu_item_container<'a>(
     animated_container_height: &Animated<bool, Instant>,
     now: Instant,
 ) -> Container<'a, Message> {
-    let create_text = move |use_blue: bool| {
+    let create_text = move |is_hovered: bool, is_selected: bool| {
         text(item_text)
             .font(Font {
                 weight: font::Weight::Light,
                 ..Default::default()
             })
             .size(11)
-            .style(move |_theme: &Theme| {
-                if use_blue {
+            .wrapping(text::Wrapping::None)
+            .style(move |theme: &Theme| {
+                if is_hovered {
                     text::Style {
-                        color: Some(Color { r: 0.1, g: 0.1, b: 1.0, a: 0.9, }),
+                        color: Some(Color {
+                            r: 0.1,
+                            g: 0.1,
+                            b: 1.0,
+                            a: 0.9,
+                        }),
+                    }
+                } else if is_selected {
+                    text::Style {
+                        color: Some(theme.extended_palette().background.strong.text),
                     }
                 } else {
                     text::Style::default()
                 }
             })
-        };
+    };
 
     let content = if is_item_hovered || is_side_menu_hovered {
-        row![item, create_text(is_item_hovered)]
+        row![item, create_text(is_item_hovered, is_item_selected)]
             .align_y(Center)
             .spacing(10)
     } else {
@@ -980,7 +1118,7 @@ fn menu_item_container<'a>(
         .width(Length::Fill)
         .align_left(Length::Fill)
         .center_y(Length::Fixed(
-            animated_container_height.animate_bool(40.0, 60.0, now),
+            animated_container_height.animate_bool(40.0, 45.0, now),
         ))
         .padding([0, 20])
         .style(move |theme: &Theme| {
@@ -1010,7 +1148,7 @@ struct GroupedBarChart {
 }
 
 impl GroupedBarChart {
-    fn new(data: Vec<IncomeData>) -> Self {
+    fn default(data: Vec<IncomeData>) -> Self {
         Self {
             data,
             cache: canvas::Cache::new(),
@@ -1018,20 +1156,127 @@ impl GroupedBarChart {
     }
 }
 
-// impl<Message> canvas::Program<Message> for GroupedBarChart {
-//     type State = ();
-//
-//     fn draw(
-//             &self,
-//             _state: &Self::State,
-//             renderer: &Renderer,
-//             _theme: &Theme,
-//             bounds: Rectangle,
-//             _cursor: iced::advanced::mouse::Cursor,
-//         ) -> Vec<canvas::Geometry<Renderer>> {
-//
-//     }
-// }
+impl<Message> canvas::Program<Message> for GroupedBarChart {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &Renderer,
+        _theme: &Theme,
+        bounds: Rectangle,
+        _cursor: iced::advanced::mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let geometry = self.cache.draw(renderer, bounds.size(), |frame| {
+            let max_bar = self
+                .data
+                .iter()
+                .flat_map(|data| [data.potential, data.potential])
+                .fold(0.0f32, f32::max);
+
+            let padding = 50.0;
+            let chart_width = frame.width() - padding * 2.0;
+            let chart_height = frame.height() - padding * 2.0;
+
+            let num_groups = self.data.len();
+            let bar_scale = chart_height / (max_bar * 1.1);
+            let group_width = chart_width / num_groups as f32;
+            let bar_width = group_width * 0.30;
+            let gap_between_bars = group_width * 0.1;
+            let group_padding = group_width * 0.2;
+
+            draw_axes(frame, padding, chart_width, chart_height);
+
+            for (i, data) in self.data.iter().enumerate() {
+                let group_x = padding + (i as f32 * group_width);
+
+                let potential_earnings_x = group_x + group_padding;
+                let potential_earnings_bar_height = data.potential * bar_scale;
+                let potential_earnings_y = padding + chart_height - potential_earnings_bar_height;
+
+                let potential_earning_bar = Path::rectangle(
+                    Point::new(potential_earnings_x, potential_earnings_y),
+                    Size::new(bar_width, potential_earnings_bar_height),
+                );
+                frame.fill(&potential_earning_bar, Color::from_rgb(0.3, 0.6, 0.9));
+
+                let actual_earnings_x = potential_earnings_x + bar_width + gap_between_bars;
+                let actual_earnings_bar_height = data.actual * bar_scale;
+                let actual_earnings_y = padding + chart_height - actual_earnings_bar_height;
+
+                let actual_earning_bar = Path::rectangle(
+                    Point::new(actual_earnings_x, actual_earnings_y),
+                    Size::new(bar_width, actual_earnings_bar_height),
+                );
+                frame.fill(&actual_earning_bar, Color::from_rgba(0.7, 0.7, 0.7, 0.5));
+            }
+        });
+        vec![geometry]
+    }
+}
+
+struct LineChart {
+    data: Vec<Attendance>,
+    cache: canvas::Cache,
+}
+
+struct Attendance {
+    month: Month,
+    attended_days: i32,
+}
+
+impl LineChart {
+    fn default(data: Vec<Attendance>) -> Self {
+        Self {
+            data,
+            cache: canvas::Cache::new(),
+        }
+    }
+}
+
+impl<Message> canvas::Program<Message> for LineChart {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &Renderer,
+        _theme: &Theme,
+        bounds: Rectangle,
+        _cursor: iced::advanced::mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let geometry = self.cache.draw(renderer, bounds.size(), |frame| {
+            draw_axes(frame, 20.0, 200.0, 150.0);
+        });
+        vec![geometry]
+    }
+}
+
+fn draw_axes(frame: &mut Frame, padding: f32, width: f32, height: f32) {
+    // y-axis
+    let y_axis = Path::line(
+        Point::new(padding, padding),
+        Point::new(padding, padding + height),
+    );
+    frame.stroke(
+        &y_axis,
+        Stroke::default()
+            .with_color(Color::from_rgb(0.5, 0.5, 0.5))
+            .with_width(2.0),
+    );
+
+    // x-axis
+    let x_axis = Path::line(
+        Point::new(padding, padding + height),
+        Point::new(padding + width, padding + height),
+    );
+    frame.stroke(
+        &x_axis,
+        Stroke::default()
+            .with_color(Color::from_rgb(0.5, 0.5, 0.5))
+            .with_width(2.0),
+    );
+}
 
 // =========================================
 // STYLES
@@ -1115,6 +1360,7 @@ mod icons {
     static ARROW_UP: OnceLock<svg::Handle> = OnceLock::new();
     static STUDENT: OnceLock<svg::Handle> = OnceLock::new();
     static LOGO: OnceLock<svg::Handle> = OnceLock::new();
+    static LOGO_EXPANDED: OnceLock<svg::Handle> = OnceLock::new();
     static SETTINGS: OnceLock<svg::Handle> = OnceLock::new();
     static LOGOUT: OnceLock<svg::Handle> = OnceLock::new();
 
@@ -1219,6 +1465,12 @@ mod icons {
             .clone()
     }
 
+    pub fn logo_expanded() -> svg::Handle {
+        LOGO_EXPANDED
+            .get_or_init(|| svg::Handle::from_path(icon_path("nhoma_logo.svg")))
+            .clone()
+    }
+
     pub fn settings() -> svg::Handle {
         SETTINGS
             .get_or_init(|| {
@@ -1244,7 +1496,7 @@ mod icons {
 // MOCK DATA & TESTING
 // =========================================
 #[cfg(debug_assertions)]
-fn mock_data() -> Vec<Student> {
+fn mock_student_data() -> Vec<Student> {
     vec![
         Student {
             name: PersonalName {
@@ -1296,6 +1548,40 @@ fn mock_data() -> Vec<Student> {
             payment_data: PaymentData {
                 per_session_amount: 150.0,
             },
+        },
+    ]
+}
+
+fn mock_income_data() -> Vec<IncomeData> {
+    vec![
+        IncomeData {
+            potential: 2000.0,
+            actual: 1500.0,
+        },
+        IncomeData {
+            potential: 1300.0,
+            actual: 1000.0,
+        },
+        IncomeData {
+            potential: 3000.0,
+            actual: 2400.0,
+        },
+    ]
+}
+
+fn mock_attendance_data() -> Vec<Attendance> {
+    vec![
+        Attendance {
+            month: Month::September,
+            attended_days: 8,
+        },
+        Attendance {
+            month: Month::October,
+            attended_days: 3,
+        },
+        Attendance {
+            month: Month::November,
+            attended_days: 5,
         },
     ]
 }

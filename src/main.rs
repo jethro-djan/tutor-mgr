@@ -17,13 +17,30 @@ use std::time::Instant;
 // =========================================
 // DOMAIN MODELS AND LOGIC
 // =========================================
+struct Domain {
+    tutor: Tutor,
+    students: Vec<Student>,
+}
+
+impl Domain {
+    fn load_from_db() -> Self {
+        mock_domain()
+    }
+}
+
 struct Student {
+    id: String,
     name: PersonalName,
     subject: TutorSubject,
     tabled_sessions: Vec<SessionData>,
     actual_sessions: Vec<DateTime<Local>>,
 
     payment_data: PaymentData,
+}
+
+struct Tutor {
+    id: String,
+    name: PersonalName,
 }
 
 struct PersonalName {
@@ -54,12 +71,23 @@ impl TutorSubject {
 }
 
 struct PaymentData {
-    per_session_amount: f32,
+    payment_type: PaymentType,
+    amount: f32,
+}
+
+enum PaymentType {
+    PerSession,
+    Monthly,
 }
 
 fn compute_accrued_amount(student: &Student) -> f32 {
-    let no_of_days = compute_num_of_completed_sessions(student);
-    student.payment_data.per_session_amount * (no_of_days as f32)
+    match student.payment_data.payment_type {
+        PaymentType::PerSession => {
+            let no_of_days = compute_num_of_completed_sessions(student);
+            student.payment_data.amount * (no_of_days as f32)
+        }
+        PaymentType::Monthly => student.payment_data.amount
+    }
 }
 
 fn compute_num_of_completed_sessions(student: &Student) -> i32 {
@@ -118,11 +146,12 @@ fn get_next_session(student: &Student) -> NaiveDate {
 // APPLICATION STATE
 // =========================================
 struct TutoringManager {
+    domain: Domain,
     current_screen: Screen,
-    state: State,
+    ui: UIState,
 }
 
-struct State {
+struct UIState {
     // Navigation
     selected_menu_item: SideMenuItem,
     hovered_menu_item: Option<SideMenuItem>,
@@ -137,12 +166,55 @@ struct State {
     hovered_dashboard_card: Option<usize>,
     barchart: GroupedBarChart,
     linechart: LineChart,
+    dashboard_summary: DashboardSummary,
 
     // StudentManager State
     search_query: String,
     show_add_student_modal: bool,
-    students: Vec<Student>,
     hovered_student_card: Option<usize>,
+}
+
+struct DashboardSummary {
+    total_scheduled_sessions: f32,
+    total_actual_sessions: f32,
+
+    potential_earnings: f32,
+    actual_earnings: f32,
+}
+
+impl DashboardSummary {
+    fn compute_from_domain_state() -> Self {
+        let domain = Domain::load_from_db();
+        let total_actual_sessions = domain.students
+            .iter()
+            .map(|student| compute_num_of_completed_sessions(student) as f32)
+            .sum();
+        let total_scheduled_sessions = domain.students
+            .iter()
+            .map(|student| student.actual_sessions.len() as f32)
+            .sum();
+        let potential_earnings = domain.students
+            .iter()
+            .map(|student| {
+                let amount = student.payment_data.amount;
+                match student.payment_data.payment_type {
+                    PaymentType::Monthly => amount,
+                    PaymentType::PerSession => total_scheduled_sessions * amount,
+                }
+            })
+            .sum();
+        let actual_earnings = domain.students
+            .iter()
+            .map(compute_accrued_amount)
+            .sum();
+
+        Self {
+            total_scheduled_sessions,
+            total_actual_sessions,
+            potential_earnings,
+            actual_earnings,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -170,7 +242,6 @@ enum Message {
 
     // Dashboard
     DashboardCardHovered(Option<usize>),
-    // AnimateMenuWidthChange,
     Tick,
 
     // Student Manager
@@ -190,8 +261,9 @@ impl TutoringManager {
 
         (
             Self {
+                domain: Domain::load_from_db(),
                 current_screen: Screen::Dashboard,
-                state: State {
+                ui: UIState {
                     selected_menu_item: SideMenuItem::Dashboard,
                     hovered_menu_item: None,
                     side_menu_hovered: false,
@@ -207,10 +279,10 @@ impl TutoringManager {
                     hovered_dashboard_card: None,
                     barchart: GroupedBarChart::default(income_data),
                     linechart: LineChart::default(attendance_data),
+                    dashboard_summary: DashboardSummary::compute_from_domain_state(),
 
                     search_query: String::new(),
                     show_add_student_modal: false,
-                    students: mock_student_data(),
                     hovered_student_card: None,
                 },
             },
@@ -224,7 +296,7 @@ impl TutoringManager {
 
     fn subscription(&self) -> Subscription<Message> {
         let now = Instant::now();
-        if self.state.animated_menu_width_change.in_progress(now) {
+        if self.ui.animated_menu_width_change.in_progress(now) {
             frames().map(|_| Message::Tick)
         } else {
             Subscription::none()
@@ -232,7 +304,6 @@ impl TutoringManager {
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
-        let now = Instant::now();
         match message {
             // Navigation Messages
             Message::NavigateToScreen(menu_item) => self.handle_navigation(menu_item),
@@ -241,15 +312,9 @@ impl TutoringManager {
 
             // Dashboard Messages
             Message::DashboardCardHovered(card_index) => {
-                self.state.hovered_dashboard_card = card_index;
+                self.ui.hovered_dashboard_card = card_index;
                 Task::none()
             }
-            // Message::AnimateMenuWidthChange => {
-            //     self.state
-            //         .animated_menu_width_change
-            //         .transition(!self.state.animated_menu_width_change.value, now);
-            //     Task::none()
-            // }
             Message::Tick => Task::none(),
 
             // StudentManager Messages
@@ -280,7 +345,7 @@ impl TutoringManager {
 // Update helpers
 impl TutoringManager {
     fn handle_navigation(&mut self, menu_item: SideMenuItem) -> Task<Message> {
-        self.state.selected_menu_item = menu_item.clone();
+        self.ui.selected_menu_item = menu_item.clone();
         self.current_screen = match menu_item {
             SideMenuItem::Dashboard => Screen::Dashboard,
             SideMenuItem::StudentManager => Screen::StudentManager,
@@ -291,39 +356,39 @@ impl TutoringManager {
     }
 
     fn handle_menu_item_hover(&mut self, menu_item_opt: Option<SideMenuItem>) -> Task<Message> {
-        self.state.hovered_menu_item = menu_item_opt.clone();
+        self.ui.hovered_menu_item = menu_item_opt.clone();
         Task::none()
     }
 
     fn handle_side_menu_hover(&mut self, is_hovered: bool) -> Task<Message> {
         let now = Instant::now();
 
-        self.state
+        self.ui
             .animated_menu_width_change
             .transition(is_hovered, now);
         if is_hovered {
-            self.state.side_menu_hovered = true;
-            self.state.show_menu_text = true;
+            self.ui.side_menu_hovered = true;
+            self.ui.show_menu_text = true;
         } else {
-            self.state.side_menu_hovered = false;
-            self.state.show_menu_text = false;
+            self.ui.side_menu_hovered = false;
+            self.ui.show_menu_text = false;
         }
 
         Task::none()
     }
 
     fn handle_show_add_student_modal(&mut self) -> Task<Message> {
-        self.state.show_add_student_modal = true;
+        self.ui.show_add_student_modal = true;
         focus_next()
     }
 
     fn handle_close_add_student_modal(&mut self) -> Task<Message> {
-        self.state.show_add_student_modal = false;
+        self.ui.show_add_student_modal = false;
         Task::none()
     }
 
     fn handle_student_card_hover(&mut self, card_index: Option<usize>) -> Task<Message> {
-        self.state.hovered_student_card = card_index;
+        self.ui.hovered_student_card = card_index;
         Task::none()
     }
 }
@@ -344,28 +409,28 @@ impl TutoringManager {
                 title: "Attendance Rate",
                 value: "85",
                 trend: Some(("5%, MoM", true)),
-                hovered_dashboard: self.state.hovered_dashboard_card,
+                hovered_dashboard: self.ui.hovered_dashboard_card,
                 variant: DashboardCardVariant::Attendance,
             },
             CardInfo {
                 title: "Actual Earnings",
                 value: "GHS 1500",
                 trend: None,
-                hovered_dashboard: self.state.hovered_dashboard_card,
+                hovered_dashboard: self.ui.hovered_dashboard_card,
                 variant: DashboardCardVariant::ActualEarnings,
             },
             CardInfo {
                 title: "Potential Earnings",
                 value: "GHS 2000",
                 trend: None,
-                hovered_dashboard: self.state.hovered_dashboard_card,
+                hovered_dashboard: self.ui.hovered_dashboard_card,
                 variant: DashboardCardVariant::PotentialEarnings,
             },
             CardInfo {
                 title: "Revenue Lost",
                 value: "GHS 500",
                 trend: Some(("3%, MoM", false)),
-                hovered_dashboard: self.state.hovered_dashboard_card,
+                hovered_dashboard: self.ui.hovered_dashboard_card,
                 variant: DashboardCardVariant::RevenueLost,
             },
         ];
@@ -421,7 +486,7 @@ impl TutoringManager {
     }
 
     fn view_student_manager(&self) -> Element<'_, Message> {
-        let search_bar = self.view_search_bar("Search Students", &self.state.search_query);
+        let search_bar = self.view_search_bar("Search Students", &self.ui.search_query);
         let add_button =
             button(svg(icons::plus()).width(25).height(25)).on_press(Message::ShowAddStudentModal);
         let action_bar = row![search_bar, add_button].spacing(100);
@@ -442,7 +507,7 @@ impl TutoringManager {
         .width(Length::Fill)
         .height(Length::Fill);
 
-        if self.state.show_add_student_modal {
+        if self.ui.show_add_student_modal {
             modal(main_container.into(), || {
                 container(column![
                     row![text!("Modal open")],
@@ -480,8 +545,8 @@ impl TutoringManager {
     }
 
     fn view_side_menu(&self) -> Element<'_, Message> {
-        let is_selected = |item: SideMenuItem| self.state.selected_menu_item == item;
-        let is_hovered = |item: SideMenuItem| self.state.hovered_menu_item == Some(item);
+        let is_selected = |item: SideMenuItem| self.ui.selected_menu_item == item;
+        let is_hovered = |item: SideMenuItem| self.ui.hovered_menu_item == Some(item);
 
         let dash_icon = svg::Svg::new(icons::dashboard().clone())
             .width(25)
@@ -523,8 +588,8 @@ impl TutoringManager {
                             "Dashboard",
                             is_selected(SideMenuItem::Dashboard),
                             is_hovered(SideMenuItem::Dashboard),
-                            self.state.side_menu_hovered,
-                            &self.state.animated_menu_item_height_change,
+                            self.ui.side_menu_hovered,
+                            &self.ui.animated_menu_item_height_change,
                             now,
                         ))
                         .interaction(Interaction::Pointer)
@@ -536,8 +601,8 @@ impl TutoringManager {
                             "Student Manager",
                             is_selected(SideMenuItem::StudentManager),
                             is_hovered(SideMenuItem::StudentManager),
-                            self.state.side_menu_hovered,
-                            &self.state.animated_menu_item_height_change,
+                            self.ui.side_menu_hovered,
+                            &self.ui.animated_menu_item_height_change,
                             now,
                         ))
                         .interaction(Interaction::Pointer)
@@ -553,8 +618,8 @@ impl TutoringManager {
                                 "Settings",
                                 is_selected(SideMenuItem::Settings),
                                 is_hovered(SideMenuItem::Settings),
-                                self.state.side_menu_hovered,
-                                &self.state.animated_menu_item_height_change,
+                                self.ui.side_menu_hovered,
+                                &self.ui.animated_menu_item_height_change,
                                 now,
                             ))
                             .interaction(Interaction::Pointer)
@@ -566,8 +631,8 @@ impl TutoringManager {
                                 "Logout",
                                 is_selected(SideMenuItem::Logout),
                                 is_hovered(SideMenuItem::Logout),
-                                self.state.side_menu_hovered,
-                                &self.state.animated_menu_item_height_change,
+                                self.ui.side_menu_hovered,
+                                &self.ui.animated_menu_item_height_change,
                                 now,
                             ))
                             .interaction(Interaction::Pointer)
@@ -583,7 +648,7 @@ impl TutoringManager {
             )
             .padding([20, 0])
             .width(
-                self.state
+                self.ui
                     .animated_menu_width_change
                     .animate_bool(70.0, 180.0, now),
             )
@@ -610,14 +675,14 @@ impl TutoringManager {
     }
 
     fn view_logo(&self) -> Element<'_, Message> {
-        let logo_handle = if self.state.side_menu_hovered {
+        let logo_handle = if self.ui.side_menu_hovered {
             icons::logo_expanded()
         } else {
             icons::logo()
         };
 
         let logo = svg(logo_handle)
-            .width(if self.state.side_menu_hovered {
+            .width(if self.ui.side_menu_hovered {
                 140
             } else {
                 40
@@ -649,7 +714,7 @@ impl TutoringManager {
                 let day = next_session.format("%A").to_string();
                 let date = next_session.format("%d %B %Y").to_string();
 
-                let is_hovered = self.state.hovered_student_card == Some(index);
+                let is_hovered = self.ui.hovered_student_card == Some(index);
 
                 let student_other_name = match &student.name.other {
                     Some(name) => name,
@@ -931,7 +996,7 @@ impl TutoringManager {
     }
 
     fn view_grouped_chart(&self) -> Element<'_, Message> {
-        let chart = Canvas::new(&self.state.barchart)
+        let chart = Canvas::new(&self.ui.barchart)
             .width(Length::Fill)
             .height(Length::Fill);
 
@@ -955,7 +1020,7 @@ impl TutoringManager {
     }
 
     fn view_trend_chart(&self) -> Element<'_, Message> {
-        let chart = Canvas::new(&self.state.linechart)
+        let chart = Canvas::new(&self.ui.linechart)
             .width(Length::Fill)
             .height(Length::Fill);
 
@@ -1496,9 +1561,24 @@ mod icons {
 // MOCK DATA & TESTING
 // =========================================
 #[cfg(debug_assertions)]
+fn mock_domain() -> Domain {
+    Domain { 
+        tutor: Tutor { 
+            id: String::from("tutor1"), 
+            name: PersonalName { 
+                first: String::from("Andy"), 
+                last: String::from("Murray"), 
+                other: None::<String> 
+            } 
+        }, 
+        students: mock_student_data(), 
+    }
+}
+
 fn mock_student_data() -> Vec<Student> {
     vec![
         Student {
+            id: String::from("student1"),
             name: PersonalName {
                 first: String::from("Mary"),
                 last: String::from("Jane"),
@@ -1520,10 +1600,12 @@ fn mock_student_data() -> Vec<Student> {
                 Local.with_ymd_and_hms(2025, 11, 6, 13, 30, 0).unwrap(),
             ],
             payment_data: PaymentData {
-                per_session_amount: 150.0,
+                payment_type: PaymentType::PerSession,
+                amount: 150.0,
             },
         },
         Student {
+            id: String::from("student1"),
             name: PersonalName {
                 first: String::from("Peter"),
                 last: String::from("Parker"),
@@ -1546,7 +1628,8 @@ fn mock_student_data() -> Vec<Student> {
                 Local.with_ymd_and_hms(2025, 11, 22, 13, 30, 0).unwrap(),
             ],
             payment_data: PaymentData {
-                per_session_amount: 150.0,
+                payment_type: PaymentType::Monthly,
+                amount: 150.0,
             },
         },
     ]

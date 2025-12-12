@@ -1,4 +1,4 @@
-use chrono::{DateTime, Datelike, Duration, Local, Month, NaiveDate, TimeZone, Weekday};
+use chrono::{DateTime, Datelike, Duration, Local, Month, NaiveDate, TimeZone, Weekday, };
 use iced::advanced::graphics::core::font;
 use iced::mouse::Interaction;
 use iced::widget::canvas::{self, Frame, Path, Stroke};
@@ -20,6 +20,52 @@ use std::time::Instant;
 struct Domain {
     tutor: Tutor,
     students: Vec<Student>,
+    monthly_summaries: Vec<MonthlySummary>,
+}
+
+impl Domain {
+    pub fn compute_trend_history(&self) -> Vec<TrendData> {
+        compute_trend_history_internal(&self.monthly_summaries)
+    }
+}
+
+#[derive(Copy, Clone)]
+struct MonthlySummary {
+    year_month: YearMonth,
+    actual_revenue: f32,
+    potential_revenue: f32,
+    total_scheduled_sessions: usize,
+    total_actual_sessions: usize,
+}
+
+#[derive(Clone)]
+struct TrendData {
+    revenue_trend: ActualRevenueTrendData,
+    sessions_trend: ActualSessionTrendData,
+}
+
+#[derive(Clone)]
+struct ActualRevenueTrendData {
+    trend: NumberTrend,
+    current_revenue: f32,
+    previous_revenue: f32,
+    year_month: YearMonth,
+}
+
+#[derive(Clone)]
+struct ActualSessionTrendData {
+    trend: NumberTrend,
+    current_sessions: f32,
+    previous_sessions: f32,
+    year_month: YearMonth,
+}
+
+type TrendHistory = Vec<TrendData>;
+
+#[derive(Copy, Clone)]
+struct YearMonth {
+    year: i32,
+    month: Month,
 }
 
 impl Domain {
@@ -142,6 +188,75 @@ fn get_next_session(student: &Student) -> NaiveDate {
         .unwrap()
 }
 
+/// Computes month-over-month trends for some eligible data
+fn compute_trend_history_internal(monthly_summaries: &[MonthlySummary]) -> TrendHistory {
+    if monthly_summaries.len() < 2 {
+        return Vec::<TrendData>::new()
+    }
+
+    let mut sorted_summaries = monthly_summaries.to_vec();
+    sorted_summaries.sort_by_key(|summary| summary.year_month.month);
+
+    let mut revenue_trend = Vec::new();
+    let mut sessions_trend = Vec::new();
+    
+    let mut trend_history = Vec::new();
+
+    for i in 1..monthly_summaries.len() {
+        let previous = monthly_summaries[i -1];
+        let current = monthly_summaries[i];
+
+        revenue_trend.push(ActualRevenueTrendData {
+            trend: compute_trend(previous.actual_revenue, current.actual_revenue),
+            current_revenue: current.actual_revenue,
+            previous_revenue: previous.actual_revenue,
+            year_month: current.year_month,
+        });
+
+        sessions_trend.push(ActualSessionTrendData {
+            trend: compute_trend(previous.actual_revenue, current.actual_revenue),
+            current_sessions: current.actual_revenue,
+            previous_sessions: previous.actual_revenue,
+            year_month: current.year_month,
+        });
+
+        trend_history.push(TrendData {
+            revenue_trend: ActualRevenueTrendData {
+                trend: compute_trend(previous.actual_revenue, current.actual_revenue),
+                current_revenue: current.actual_revenue,
+                previous_revenue: previous.actual_revenue,
+                year_month: current.year_month,
+            },
+            sessions_trend: ActualSessionTrendData { 
+                trend: compute_trend(previous.total_actual_sessions as f32, current.total_scheduled_sessions as f32),
+                current_sessions: current.total_actual_sessions as f32, 
+                previous_sessions: previous.total_actual_sessions as f32, 
+                year_month: current.year_month, 
+            }
+        })
+    }
+
+    trend_history
+}
+
+fn compute_trend(previous: f32, current: f32) -> NumberTrend {
+    let percentage_change = if previous == 0.0 {
+        0.0 
+    } else {
+        (current - previous) / previous * 100.0
+    };
+
+    NumberTrend { 
+        trend_direction: if percentage_change >= 0.0 {
+            TrendDirection::Up
+        } else {
+            TrendDirection::Down
+        },
+        percentage_change: percentage_change.abs(),
+    }
+}
+
+
 // =========================================
 // APPLICATION STATE
 // =========================================
@@ -174,24 +289,69 @@ struct UIState {
     hovered_student_card: Option<usize>,
 }
 
-struct DashboardSummary {
-    total_scheduled_sessions: f32,
-    total_actual_sessions: f32,
-
-    potential_earnings: f32,
-    actual_earnings: f32,
+/// Info about metric trend from previous month
+///
+/// Answers the question of whether some metric has increased or decreased from previous
+/// amount
+#[derive(Clone)]
+struct NumberTrend {
+    trend_direction: TrendDirection,
+    percentage_change: f32,
 }
+
+#[derive(Clone)]
+enum TrendDirection {
+    Up,
+    Down,
+}
+
+struct ActualRevenueSummary {
+    amount: f32,
+    trend: NumberTrend,
+}
+
+struct PotentialRevenueSummary {
+    amount: f32,
+}
+
+struct LostRevenueSummary {
+    amount: f32,
+    trend: NumberTrend,
+}
+
+struct AttendanceSummary {
+    total_scheduled_sessions: usize,
+    total_actual_sessions: usize,
+}
+
+struct MonthlySummaryWithTrend {
+    month: YearMonth,
+
+    attendance: AttendanceSummary,
+    actual_revenue: ActualRevenueSummary,
+    potential_revenue: PotentialRevenueSummary,
+    lost_revenue: LostRevenueSummary,
+}
+
+
+struct DashboardSummary {
+    attendance: AttendanceSummary,
+    actual_revenue: ActualRevenueSummary,
+    potential_revenue: PotentialRevenueSummary,
+    lost_revenue: LostRevenueSummary,
+}
+
 
 impl DashboardSummary {
     fn compute_from_domain_state() -> Self {
         let domain = Domain::load_from_db();
         let total_actual_sessions = domain.students
             .iter()
-            .map(|student| compute_num_of_completed_sessions(student) as f32)
+            .map(|student| compute_num_of_completed_sessions(student) as usize)
             .sum();
         let total_scheduled_sessions = domain.students
             .iter()
-            .map(|student| student.actual_sessions.len() as f32)
+            .map(|student| student.actual_sessions.len())
             .sum();
         let potential_earnings = domain.students
             .iter()
@@ -199,7 +359,7 @@ impl DashboardSummary {
                 let amount = student.payment_data.amount;
                 match student.payment_data.payment_type {
                     PaymentType::Monthly => amount,
-                    PaymentType::PerSession => total_scheduled_sessions * amount,
+                    PaymentType::PerSession => (total_scheduled_sessions as f32) * amount,
                 }
             })
             .sum();
@@ -208,14 +368,31 @@ impl DashboardSummary {
             .map(compute_accrued_amount)
             .sum();
 
-        Self {
-            total_scheduled_sessions,
+        let attendance = AttendanceSummary {
             total_actual_sessions,
-            potential_earnings,
-            actual_earnings,
+            total_scheduled_sessions,
+        };
+        let actual_revenue = ActualRevenueSummary {
+            amount: actual_earnings,
+            trend: NumberTrend { trend_direction: TrendDirection::Up, percentage_change: 5.0 }, // placeholder
+        };
+        let potential_revenue = PotentialRevenueSummary {
+            amount: potential_earnings,
+        };
+        let lost_revenue = LostRevenueSummary {
+            amount: potential_earnings - actual_earnings,
+            trend: NumberTrend { trend_direction: TrendDirection::Down, percentage_change: 5.0 } // placeholder
+        };
+
+        Self {
+            attendance,
+            actual_revenue,
+            potential_revenue,
+            lost_revenue,
         }
     }
 }
+
 
 #[derive(Debug)]
 enum Screen {
@@ -396,40 +573,57 @@ impl TutoringManager {
 // Top-level Views
 impl TutoringManager {
     fn view_dashboard(&self) -> Element<'_, Message> {
-        struct CardInfo<'a> {
-            title: &'a str,
-            value: &'a str,
-            trend: Option<(&'a str, bool)>,
+        struct CardInfo {
+            title: String,
+            value: String,
+            trend: Option<(String, bool)>,
             hovered_dashboard: Option<usize>,
             variant: DashboardCardVariant,
         }
 
+        let summary = &self.ui.dashboard_summary;
+
+        let attendance_rate = if summary.attendance.total_scheduled_sessions > 0 {
+            format!("{:.0}%", 
+                summary.attendance.total_actual_sessions as f32 / summary.attendance.total_scheduled_sessions as f32 * 100.0
+            )
+        } else {
+            "--".to_string()
+        };
+
+        let trend_format = |trend: &NumberTrend| -> (String, bool) {
+            match trend.trend_direction {
+                TrendDirection::Up => (format!("{:.1}", trend.percentage_change), true),
+                TrendDirection::Down => (format!("{:.1}", trend.percentage_change), false),
+            }
+        };
+
         let card_data = [
             CardInfo {
-                title: "Attendance Rate",
-                value: "85",
-                trend: Some(("5%, MoM", true)),
+                title: "Attendance Rate".into(),
+                value: attendance_rate,
+                trend: Some(trend_format(&summary.actual_revenue.trend)),
                 hovered_dashboard: self.ui.hovered_dashboard_card,
                 variant: DashboardCardVariant::Attendance,
             },
             CardInfo {
-                title: "Actual Earnings",
-                value: "GHS 1500",
-                trend: None,
+                title: "Actual Earnings".into(),
+                value: format!("GHS {:.2}", summary.actual_revenue.amount),
+                trend: Some(trend_format(&summary.actual_revenue.trend)),
                 hovered_dashboard: self.ui.hovered_dashboard_card,
                 variant: DashboardCardVariant::ActualEarnings,
             },
             CardInfo {
-                title: "Potential Earnings",
-                value: "GHS 2000",
+                title: "Potential Earnings".into(),
+                value: format!("GHS {:.2}", summary.potential_revenue.amount),
                 trend: None,
                 hovered_dashboard: self.ui.hovered_dashboard_card,
                 variant: DashboardCardVariant::PotentialEarnings,
             },
             CardInfo {
-                title: "Revenue Lost",
-                value: "GHS 500",
-                trend: Some(("3%, MoM", false)),
+                title: "Revenue Lost".into(),
+                value: format!("GHS {:.2}", summary.lost_revenue.amount),
+                trend: Some(trend_format(&summary.lost_revenue.trend)),
                 hovered_dashboard: self.ui.hovered_dashboard_card,
                 variant: DashboardCardVariant::RevenueLost,
             },
@@ -443,9 +637,9 @@ impl TutoringManager {
         let summary_cards_row = row(card_data.iter().enumerate().map(|(index, card)| {
             let is_hovered = card.hovered_dashboard == Some(index);
             metric_card(
-                card.title,
-                card.value,
-                card.trend,
+                card.title.clone(),
+                card.value.to_owned(),
+                card.trend.clone(),
                 is_hovered,
                 Some(index),
                 card.variant,
@@ -705,7 +899,7 @@ impl TutoringManager {
 
     fn view_student_manager_card_list(&self) -> Vec<Element<'_, Message>> {
         let card_list = self
-            .state
+            .domain
             .students
             .iter()
             .enumerate()
@@ -1083,9 +1277,9 @@ enum DashboardCardVariant {
 }
 
 fn metric_card<'a>(
-    title: &'a str,
-    value: &'a str,
-    trend: Option<(&'a str, bool)>,
+    title: String,
+    value: String,
+    trend: Option<(String, bool)>,
     is_hovered: bool,
     card_index: Option<usize>,
     variant: DashboardCardVariant,
@@ -1572,6 +1766,7 @@ fn mock_domain() -> Domain {
             } 
         }, 
         students: mock_student_data(), 
+        monthly_summaries: mock_monthly_summaries(),
     }
 }
 
@@ -1605,7 +1800,7 @@ fn mock_student_data() -> Vec<Student> {
             },
         },
         Student {
-            id: String::from("student1"),
+            id: String::from("student2"),
             name: PersonalName {
                 first: String::from("Peter"),
                 last: String::from("Parker"),
@@ -1631,6 +1826,26 @@ fn mock_student_data() -> Vec<Student> {
                 payment_type: PaymentType::Monthly,
                 amount: 150.0,
             },
+        },
+    ]
+}
+
+fn mock_monthly_summaries() -> Vec<MonthlySummary> {
+    vec![
+        MonthlySummary {
+            year_month: YearMonth { year: 2025, month: Month::October },
+            actual_revenue: 1500.0,
+            potential_revenue: 2000.0,
+            total_actual_sessions: 5,
+            total_scheduled_sessions: 8,
+        },
+
+        MonthlySummary {
+            year_month: YearMonth { year: 2025, month: Month::November },
+            actual_revenue: 1200.0,
+            potential_revenue: 1800.0,
+            total_actual_sessions: 3,
+            total_scheduled_sessions: 4,
         },
     ]
 }

@@ -1,7 +1,7 @@
 use chrono::{DateTime, Datelike, Duration, Local, Month, NaiveDate, TimeZone, Weekday, };
 use iced::advanced::graphics::core::font;
 use iced::mouse::Interaction;
-use iced::widget::canvas::{self, Frame, Path, Stroke};
+use iced::widget::canvas::{self, Frame, Path, Stroke, Text};
 use iced::widget::{
     Canvas, Column, Container, Row, button, column, container, focus_next, mouse_area, row, stack,
     svg, text, text_input,
@@ -1399,6 +1399,7 @@ fn menu_item_container<'a>(
 struct IncomeData {
     potential: f32,
     actual: f32,
+    month: String,
 }
 
 struct GroupedBarChart {
@@ -1468,6 +1469,19 @@ impl<Message> canvas::Program<Message> for GroupedBarChart {
                     Size::new(bar_width, actual_earnings_bar_height),
                 );
                 frame.fill(&actual_earning_bar, Color::from_rgba(0.7, 0.7, 0.7, 0.5));
+
+                let label_x = group_x + (group_width / 2.0);
+                let label_y = padding + chart_height + 10.0;
+
+                frame.fill_text(Text {
+                    content: data.month.clone(),
+                    position: Point { x: label_x, y: label_y },
+                    color: Color::BLACK,
+                    size: 11.0.into(),
+                    horizontal_alignment: iced::alignment::Horizontal::Center,
+                    ..Default::default()
+
+                });
             }
         });
         vec![geometry]
@@ -1855,14 +1869,17 @@ fn mock_income_data() -> Vec<IncomeData> {
         IncomeData {
             potential: 2000.0,
             actual: 1500.0,
+            month: "Sep".to_string(),
         },
         IncomeData {
             potential: 1300.0,
             actual: 1000.0,
+            month: "Oct".to_string(),
         },
         IncomeData {
             potential: 3000.0,
             actual: 2400.0,
+            month: "Nov".to_string(),
         },
     ]
 }

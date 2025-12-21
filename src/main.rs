@@ -2,9 +2,10 @@ use chrono::{DateTime, Datelike, Duration, Local, Month, NaiveDate, TimeZone, We
 use iced::advanced::graphics::core::font;
 use iced::mouse::Interaction;
 use iced::widget::canvas::{self, Frame, Path, Stroke, Text};
+use iced::widget::Grid;
 use iced::widget::{
     Canvas, Column, Container, Row, button, column, container, operation::focus_next, mouse_area, row, stack,
-    svg, text, text_input, Button
+    svg, text, text_input, Button, grid
 };
 use iced::window::frames;
 use iced::{
@@ -650,7 +651,7 @@ impl TutoringManager {
             ..Default::default()
         });
 
-        let summary_cards_row = row(card_data.iter().enumerate().map(|(index, card)| {
+        let summary_cards_row = grid(card_data.iter().enumerate().map(|(index, card)| {
             let is_hovered = card.hovered_dashboard == Some(index);
             metric_card(
                 card.title.clone(),
@@ -661,6 +662,9 @@ impl TutoringManager {
                 card.variant,
             )
         }))
+        .columns(4)
+        .width(800)
+        .height(Length::Fixed(100.0))
         .spacing(16);
 
         let summary_section = column![
@@ -678,7 +682,12 @@ impl TutoringManager {
             weight: font::Weight::Medium,
             ..Default::default()
         });
-        let graphs = row![attendance_trend_chart, potential_vs_actual_chart,].spacing(16);
+        let graphs = Grid::new()
+            .push(attendance_trend_chart)
+            .push(potential_vs_actual_chart)
+            .height(Length::Fixed(300.0))
+            .width(1200)
+            .spacing(16);
 
         let graph_section = column![graphs_section_title, graphs,].spacing(12);
 
@@ -1158,8 +1167,8 @@ impl TutoringManager {
                 .center_x(Length::Fill),
             chart
         ])
-        .width(Length::FillPortion(3))
-        .height(Length::Fixed(400.0))
+        // .width(Length::FillPortion(3))
+        // .height(Length::Fixed(400.0))
         .padding(20)
         .style(|theme: &Theme| {
             let palette = theme.extended_palette();
@@ -1183,8 +1192,8 @@ impl TutoringManager {
                 .center_x(Length::Fill),
             chart
         ])
-        .width(Length::FillPortion(2))
-        .height(Length::Fixed(400.0))
+        // .width(Length::FillPortion(2))
+        // .height(Length::Fixed(400.0))
         .padding(20)
         .style(|theme: &Theme| {
             let palette = theme.extended_palette();
@@ -1446,9 +1455,9 @@ impl<Message> canvas::Program<Message> for GroupedBarChart {
                 .flat_map(|data| [data.potential, data.potential])
                 .fold(0.0f32, f32::max);
 
-            let padding = 50.0;
+            let padding = 20.0;
             let chart_width = frame.width() - padding * 2.0;
-            let chart_height = frame.height() - padding * 2.0;
+            let chart_height = frame.height() - padding * 2.5;
 
             let num_groups = self.data.len();
             let bar_scale = chart_height / (max_bar * 1.1);
@@ -1537,9 +1546,9 @@ impl<Message> canvas::Program<Message> for LineChart {
                 .map(|dp| dp.attended_days)
                 .max()
                 .unwrap() as f32;
-            let padding = 50.0;
+            let padding = 20.0;
             let chart_width = frame.width() - padding * 2.0;
-            let chart_height = frame.height() - padding * 2.0;
+            let chart_height = frame.height() - padding * 2.5;
             let bar_scale = chart_height / (max_bar * 1.1);
 
             let num_groups = self.data.len();

@@ -4,7 +4,7 @@ use iced::mouse::Interaction;
 use iced::widget::canvas::{self, Frame, Path, Stroke, Text};
 use iced::widget::{
     Canvas, Column, Container, Row, button, column, container, operation::focus_next, mouse_area, row, stack,
-    svg, text, text_input,
+    svg, text, text_input, Button
 };
 use iced::window::frames;
 use iced::{
@@ -1069,88 +1069,31 @@ impl TutoringManager {
 
                 let action_section = container(
                     row![
-                        button(
-                            container(
-                                row![
-                                    svg::Svg::new(icons::plus().clone())
-                                        .width(16)
-                                        .height(18)
-                                        .style(|theme: &Theme, _status: svg::Status| {
-                                            let palette = theme.extended_palette();
-                                            svg::Style {
-                                                color: Some(Color::WHITE),
-                                                // color: Some(palette.background.weak.text),
-                                            }
-                                        }),
-                                    text("Add Session")
-                                        .size(12)
-                                        .font(Font {
-                                            weight: font::Weight::Semibold,
-                                            ..Default::default()
-                                        })
-                                        .style(|theme: &Theme| {
-                                            let palette = theme.extended_palette();
-                                            text::Style {
-                                                color: Some(Color::WHITE),
-                                                // color: Some(palette.background.weak.text),
-                                            }
-                                        }),
-                                ]
-                                .spacing(5)
-                                .align_y(Center)
-                            )
-                            .align_x(Center)
+                        ui_button(
+                            "Add Session",
+                            12.0,
+
+                            icons::edit(),
+                            16.0,
+                            18.0,
+
+                            |_| Color::WHITE,
+                            |_| Color::BLACK,
                         )
-                        .style(|theme: &Theme, _status: button::Status| {
-                            let palette = theme.extended_palette();
-                            button::Style {
-                                background: Some(Background::Color(Color::BLACK)),
-                                // background: Some(Background::Color(palette.primary.base.color)),
-                                border: Border {
-                                    radius: 10.0.into(),
-                                    ..Default::default()
-                                },
-                                ..Default::default()
-                            }
-                        })
                         .padding(10)
                         .width(Length::FillPortion(2))
                         .height(Length::Fixed(40.0)),
-                        button(
-                            container(
-                                row![
-                                    svg::Svg::new(icons::edit().clone())
-                                        .width(16)
-                                        .height(18)
-                                        .width(16)
-                                        .height(18)
-                                        .style(|theme: &Theme, _status: svg::Status| {
-                                            let palette = theme.extended_palette();
-                                            svg::Style {
-                                                color: Some(palette.background.weak.text),
-                                            }
-                                        }),
-                                    text("Edit").size(12).font(Font {
-                                        weight: font::Weight::Semibold,
-                                        ..Default::default()
-                                    })
-                                ]
-                                .spacing(5)
-                                .align_y(Center)
-                            )
-                            .align_x(Center)
+                        ui_button(
+                            "Edit",
+                            12.0,
+
+                            icons::edit(),
+                            16.0,
+                            18.0,
+
+                            |theme| theme.extended_palette().background.weak.text,
+                            |theme| theme.extended_palette().background.weak.color,
                         )
-                        .style(|theme: &Theme, _status: button::Status| {
-                            let palette = theme.extended_palette();
-                            button::Style {
-                                background: Some(Background::Color(palette.background.weak.color)),
-                                border: Border {
-                                    radius: 10.0.into(),
-                                    ..Default::default()
-                                },
-                                ..Default::default()
-                            }
-                        })
                         .padding(10)
                         .width(Length::FillPortion(1))
                         .height(Length::Fixed(40.0)),
@@ -1342,6 +1285,58 @@ fn metric_card<'a>(
         .on_enter(Message::DashboardCardHovered(card_index))
         .on_exit(Message::DashboardCardHovered(None))
         .into()
+}
+
+fn ui_button<'a>(
+    btn_text: &'a str,
+    btn_text_size: f32,
+
+    icon_svg_handle: svg::Handle,
+    icon_width: f32,
+    icon_height: f32,
+
+    cn_color_fn: impl Fn(&Theme) -> Color + 'a + Copy,
+    bg_color_fn: impl Fn(&Theme) -> Color + 'a,
+) -> Button<'a, Message> {
+    button(
+        container(
+            row![
+                svg::Svg::new(icon_svg_handle)
+                    .width(icon_width)
+                    .height(icon_height)
+                    .style(move |theme: &Theme, _status: svg::Status| {
+                        svg::Style {
+                            color: Some(cn_color_fn(theme)),
+                        }
+                    }),
+                text(btn_text)
+                    .size(btn_text_size)
+                    .font(Font {
+                        weight: font::Weight::Semibold,
+                        ..Default::default()
+                    })
+                    .style(move |theme: &Theme| {
+                        text::Style {
+                            color: Some(cn_color_fn(theme)),
+                        }
+                    }),
+            ]
+            .spacing(5)
+            .align_y(Center)
+        )
+        .align_x(Center)
+    )
+    .style(move |theme: &Theme, _status: button::Status| {
+        button::Style {
+            background: Some(Background::Color(bg_color_fn(theme))),
+            border: Border {
+                radius: 10.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    })
+
 }
 
 fn menu_item_container<'a>(

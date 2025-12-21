@@ -3,7 +3,7 @@ use iced::advanced::graphics::core::font;
 use iced::mouse::Interaction;
 use iced::widget::canvas::{self, Frame, Path, Stroke, Text};
 use iced::widget::{
-    Canvas, Column, Container, Row, button, column, container, focus_next, mouse_area, row, stack,
+    Canvas, Column, Container, Row, button, column, container, operation::focus_next, mouse_area, row, stack,
     svg, text, text_input,
 };
 use iced::window::frames;
@@ -266,6 +266,17 @@ struct TutoringManager {
     ui: UIState,
 }
 
+#[derive(Default)]
+struct StudentInfo {
+    first_name: String,
+    last_name: String,
+    other_names: String,
+
+    subject: String,
+
+    rate_per_session: String,
+}
+
 struct UIState {
     // Navigation
     selected_menu_item: SideMenuItem,
@@ -287,6 +298,9 @@ struct UIState {
     search_query: String,
     show_add_student_modal: bool,
     hovered_student_card: Option<usize>,
+
+    // Modal State
+    student_info: StudentInfo,
 }
 
 /// Info about metric trend from previous month
@@ -461,6 +475,8 @@ impl TutoringManager {
                     search_query: String::new(),
                     show_add_student_modal: false,
                     hovered_student_card: None,
+
+                    student_info: StudentInfo::default(),
                 },
             },
             Task::none(),
@@ -1478,7 +1494,7 @@ impl<Message> canvas::Program<Message> for GroupedBarChart {
                     position: Point { x: label_x, y: label_y },
                     color: Color::BLACK,
                     size: 11.0.into(),
-                    horizontal_alignment: iced::alignment::Horizontal::Center,
+                    align_x: iced::advanced::text::Alignment::Center,
                     ..Default::default()
 
                 });
@@ -1494,7 +1510,7 @@ struct LineChart {
 }
 
 struct Attendance {
-    month: Month,
+    month: String,
     attended_days: i32,
 }
 
@@ -1519,7 +1535,27 @@ impl<Message> canvas::Program<Message> for LineChart {
         _cursor: iced::advanced::mouse::Cursor,
     ) -> Vec<canvas::Geometry> {
         let geometry = self.cache.draw(renderer, bounds.size(), |frame| {
-            draw_axes(frame, 20.0, 200.0, 150.0);
+            let max_bar = self
+                .data
+                .iter()
+                .map(|dp| dp.attended_days)
+                .max()
+                .unwrap() as f32;
+            let padding = 50.0;
+            let chart_width = frame.width() - padding * 2.0;
+            let chart_height = frame.height() - padding * 2.0;
+
+            let num_groups = self.data.len();
+            let bar_scale = chart_height / (max_bar * 1.1);
+            let group_width = chart_width / num_groups as f32;
+            let bar_width = group_width * 0.30;
+            let gap_between_bars = group_width * 0.1;
+            let group_padding = group_width * 0.2;
+
+            draw_axes(frame, padding, chart_width, chart_height);
+
+            for (i, data) in self.data.iter().enumerate() {
+            }
         });
         vec![geometry]
     }
@@ -1887,15 +1923,15 @@ fn mock_income_data() -> Vec<IncomeData> {
 fn mock_attendance_data() -> Vec<Attendance> {
     vec![
         Attendance {
-            month: Month::September,
+            month: "Sep".to_string(),
             attended_days: 8,
         },
         Attendance {
-            month: Month::October,
+            month: "Oct".to_string(),
             attended_days: 3,
         },
         Attendance {
-            month: Month::November,
+            month: "Nov".to_string(),
             attended_days: 5,
         },
     ]
@@ -1906,10 +1942,23 @@ fn mock_attendance_data() -> Vec<Attendance> {
 // =========================================
 fn main() -> iced::Result {
     iced::application(
-        TutoringManager::title,
+        TutoringManager::new,
         TutoringManager::update,
         TutoringManager::view,
     )
+    .title(TutoringManager::title)
     .subscription(TutoringManager::subscription)
-    .run_with(TutoringManager::new)
+    .window(iced::window::Settings {
+        size: Size::new(1200.0, 800.0), 
+        maximized: false, 
+        fullscreen: false, 
+        min_size: Some(Size::new(900.0, 700.0)), 
+        resizable: true, 
+        closeable: true, 
+        minimizable: true, 
+        icon: None, 
+        exit_on_close_request: true, 
+        ..Default::default()
+    })
+    .run()
 }

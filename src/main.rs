@@ -1154,7 +1154,8 @@ impl TutoringManager {
             .height(Length::Fill);
 
         container(column![
-            text!("Current Month: Actual vs Potential Earnings").size(20),
+            container(text!("Actual vs Potential Earnings").size(20))
+                .center_x(Length::Fill),
             chart
         ])
         .width(Length::FillPortion(3))
@@ -1178,7 +1179,8 @@ impl TutoringManager {
             .height(Length::Fill);
 
         container(column![
-            text!("Attendance Rate: Last 3 Months").size(20),
+            container(text!("Attendance Rate").size(20))
+                .center_x(Length::Fill),
             chart
         ])
         .width(Length::FillPortion(2))
@@ -1189,7 +1191,6 @@ impl TutoringManager {
 
             container::Style {
                 background: Some(palette.background.weak.color.into()),
-                // border: (),
                 ..Default::default()
             }
         })
@@ -1539,17 +1540,62 @@ impl<Message> canvas::Program<Message> for LineChart {
             let padding = 50.0;
             let chart_width = frame.width() - padding * 2.0;
             let chart_height = frame.height() - padding * 2.0;
+            let bar_scale = chart_height / (max_bar * 1.1);
 
             let num_groups = self.data.len();
-            let bar_scale = chart_height / (max_bar * 1.1);
             let group_width = chart_width / num_groups as f32;
-            let bar_width = group_width * 0.30;
-            let gap_between_bars = group_width * 0.1;
-            let group_padding = group_width * 0.2;
 
+            // for axes
             draw_axes(frame, padding, chart_width, chart_height);
 
+            let points: Vec<Point> = self.data 
+                .iter()
+                .enumerate()
+                .map(|(i, dp)| {
+                    let data = dp.attended_days as f32;
+                    let group_x = padding + (i as f32 * group_width);
+                    let income_y_scale = data * bar_scale;
+
+                    let point_x = group_x + (group_width / 2.0);
+                    let point_y = padding + chart_height - income_y_scale;
+
+                    Point::new(point_x, point_y)
+                })
+                .collect();
+
+            // for points
+            for point in &points {
+                let path = Path::circle(*point, 4.0);
+                frame.fill(&path, Color::BLACK);
+            }
+
+            // connecting lines
+            for window in points.windows(2) {
+                let line = Path::line(window[0], window[1]);
+                frame.stroke(
+                    &line, 
+                    Stroke::default()
+                        .with_color(Color::BLACK)
+                        .with_width(1.5),
+                );
+            }
+
+            // for labels
             for (i, data) in self.data.iter().enumerate() {
+                let group_x = padding + (i as f32 * group_width);
+
+                let label_x = group_x + (group_width / 2.0);
+                let label_y = padding + chart_height + 10.0;
+
+                frame.fill_text(Text {
+                    content: data.month.clone(),
+                    position: Point { x: label_x, y: label_y },
+                    color: Color::BLACK,
+                    size: 11.0.into(),
+                    align_x: iced::advanced::text::Alignment::Center,
+                    ..Default::default()
+
+                });
             }
         });
         vec![geometry]

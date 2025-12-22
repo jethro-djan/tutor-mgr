@@ -13,6 +13,7 @@ use iced::{
     Renderer, Shadow, Size, Subscription, Task, Theme, Vector,
 };
 use lilt::{Animated, Easing};
+use std::collections::BTreeMap;
 use std::time::Instant;
 
 // =========================================
@@ -25,8 +26,74 @@ struct Domain {
 }
 
 impl Domain {
+    fn load_state_from_db() -> Self {
+        mock_domain()
+    }
+
     pub fn compute_trend_history(&self) -> Vec<TrendData> {
         compute_trend_history_internal(&self.monthly_summaries)
+    }
+
+    pub fn compute_income_data(&self) -> Vec<IncomeData> {
+        let students = &self.students;
+
+        let mut students_grouped_by_month: BTreeMap<(u32, i32), Vec<&Student>> = BTreeMap::new();
+
+        for student in students.iter() {
+
+            let student_months: Vec<(u32, i32)> = student.actual_sessions
+                .iter()
+                .map(|dt| (dt.month(), dt.year()))
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+
+            for month_key in student_months {
+                students_grouped_by_month
+                    .entry(month_key)
+                    .or_default()
+                    .push(student);
+            }
+        }
+
+        let income_data: Vec<IncomeData> = students_grouped_by_month
+            .iter()
+            .map(|(&(m, y), stds)| {
+                let actual = stds
+                    .iter()
+                    .map(|std| compute_monthly_sum(
+                        std, m, y, compute_monthly_completed_sessions
+                    ))
+                    .sum();
+
+                let potential = stds
+                    .iter()
+                    .map(|std| {
+                        match std.payment_data.payment_type {
+                            PaymentType::PerSession => {
+                                std.payment_data.amount *
+                                    (std.tabled_sessions.len() as f32)
+                            }
+                            PaymentType::Monthly => std.payment_data.amount
+                        }
+                    })
+                    .sum();
+
+                let date = NaiveDate::from_ymd_opt(y, m, 1)
+                    .expect("Invalid date construction");
+                let month = date.format("%b").to_string();
+
+
+                IncomeData {
+                    actual,
+                    potential,
+                    month,
+                }
+            })
+            .collect();
+
+        println!("{:#?}", income_data);
+        income_data
     }
 }
 
@@ -69,11 +136,6 @@ struct YearMonth {
     month: Month,
 }
 
-impl Domain {
-    fn load_from_db() -> Self {
-        mock_domain()
-    }
-}
 
 struct Student {
     id: String,
@@ -83,6 +145,7 @@ struct Student {
     actual_sessions: Vec<DateTime<Local>>,
 
     payment_data: PaymentData,
+    tution_start_date: DateTime<Local>,
 }
 
 struct Tutor {
@@ -117,59 +180,101 @@ impl TutorSubject {
     }
 }
 
+#[derive(Clone)]
 struct PaymentData {
     payment_type: PaymentType,
     amount: f32,
 }
 
+#[derive(Clone)]
 enum PaymentType {
     PerSession,
     Monthly,
 }
 
-fn compute_accrued_amount(student: &Student) -> f32 {
+fn compute_monthly_sum(
+    student: &Student, 
+    month: u32,
+    year: i32,
+    compute_sessions_fn: fn(&Student, u32, i32) -> i32
+) -> f32 {
     match student.payment_data.payment_type {
         PaymentType::PerSession => {
-            let no_of_days = compute_num_of_completed_sessions(student);
+            let no_of_days = compute_sessions_fn(
+                student, 
+                month,
+                year, 
+            );
             student.payment_data.amount * (no_of_days as f32)
         }
+        // TODO: Logic for actual monthly payment taken vs agreed
+        // Maybe based on targets or missed sessions and 
+        // deductions are per contract
         PaymentType::Monthly => student.payment_data.amount
     }
 }
 
-fn compute_num_of_completed_sessions(student: &Student) -> i32 {
-    let today_date = Local::now().naive_local().date();
-    let current_year = today_date.year();
-    let current_month = today_date.month();
-    let month_start_date = NaiveDate::from_ymd_opt(current_year, current_month, 1).unwrap();
+fn get_month_date_range(year: i32, month: u32) -> (NaiveDate, NaiveDate) {
+    let month_start = NaiveDate::from_ymd_opt(year, month, 1).unwrap();
+    let month_end = if month == 12 {
+        NaiveDate::from_ymd_opt(year + 1, 1, 1).unwrap()
+    } else {
+        NaiveDate::from_ymd_opt(year, month + 1, 1).unwrap()
+    } - Duration::days(1);
+    
+    (month_start, month_end)
+}
 
-    let duration = today_date.signed_duration_since(month_start_date);
-    let all_dates: Vec<NaiveDate> = (0..=duration.num_days())
-        .map(|i| month_start_date + Duration::days(i))
-        .collect();
-    let session_days: Vec<Weekday> = student
+fn get_all_dates_in_month(year: i32, month: u32) -> Vec<NaiveDate> {
+    let (month_start, month_end) = get_month_date_range(year, month);
+    let duration = month_end.signed_duration_since(month_start);
+    
+    (0..=duration.num_days())
+        .map(|i| month_start + Duration::days(i))
+        .collect()
+}
+
+fn get_scheduled_weekdays(student: &Student) -> Vec<Weekday> {
+    student
         .tabled_sessions
         .iter()
         .map(|session| session.day)
-        .collect();
+        .collect()
+}
+
+fn compute_monthly_scheduled_sessions(
+    student: &Student,
+    month: u32,
+    year: i32,
+) -> i32 {
+    let all_dates = get_all_dates_in_month(year, month);
+    let session_days = get_scheduled_weekdays(student);
+
+    all_dates
+        .iter()
+        .filter(|date| session_days.contains(&date.weekday()))
+        .count() as i32
+}
+
+fn compute_monthly_completed_sessions(
+    student: &Student,
+    month: u32,
+    year: i32,
+) -> i32 {
+    let (month_start, month_end) = get_month_date_range(year, month);
+    let session_days = get_scheduled_weekdays(student);
 
     let actual_session_dates: Vec<NaiveDate> = student
         .actual_sessions
         .iter()
         .map(|dt| dt.naive_local().date())
+        .filter(|date| date >= &month_start && date <= &month_end)
         .collect();
 
-    let session_dates: Vec<&NaiveDate> = all_dates
-        .iter()
-        .filter(|date| actual_session_dates.contains(date))
-        .collect();
-
-    let no_of_days = session_dates
+    actual_session_dates
         .iter()
         .filter(|date| session_days.contains(&date.weekday()))
-        .count();
-
-    no_of_days as i32
+        .count() as i32
 }
 
 fn get_next_session(student: &Student) -> NaiveDate {
@@ -359,28 +464,49 @@ struct DashboardSummary {
 
 impl DashboardSummary {
     fn compute_from_domain_state() -> Self {
-        let domain = Domain::load_from_db();
+        let domain = Domain::load_state_from_db();
+
+        let today = Local::now().naive_local().date();
+        let current_year = today.year();
+        let current_month = today.month();
+
         let total_actual_sessions = domain.students
             .iter()
-            .map(|student| compute_num_of_completed_sessions(student) as usize)
+            .map(|student| compute_monthly_completed_sessions(
+                student, 
+                current_month, 
+                current_year
+            ) as usize)
             .sum();
+
         let total_scheduled_sessions = domain.students
             .iter()
-            .map(|student| student.actual_sessions.len())
+            .map(|student| compute_monthly_scheduled_sessions(
+                student, 
+                current_month, 
+                current_year
+            ) as usize)
             .sum();
+        println!("total_scheduled_sessions: {}", total_scheduled_sessions);
+
         let potential_earnings = domain.students
             .iter()
-            .map(|student| {
-                let amount = student.payment_data.amount;
-                match student.payment_data.payment_type {
-                    PaymentType::Monthly => amount,
-                    PaymentType::PerSession => (total_scheduled_sessions as f32) * amount,
-                }
-            })
+            .map(|std| compute_monthly_sum(
+                std,
+                current_month,
+                current_year,
+                compute_monthly_scheduled_sessions,
+            ))
             .sum();
+
         let actual_earnings = domain.students
             .iter()
-            .map(compute_accrued_amount)
+            .map(|std| compute_monthly_sum(
+                std,
+                current_month,
+                current_year,
+                compute_monthly_completed_sessions,
+            ))
             .sum();
 
         let attendance = AttendanceSummary {
@@ -448,12 +574,14 @@ enum Message {
 
 impl TutoringManager {
     fn new() -> (Self, Task<Message>) {
-        let income_data = mock_income_data();
+        let domain = Domain::load_state_from_db();
+        let income_data = domain.compute_income_data();
+        // let income_data = mock_income_data();
         let attendance_data = mock_attendance_data();
 
         (
             Self {
-                domain: Domain::load_from_db(),
+                domain: Domain::load_state_from_db(),
                 current_screen: Screen::Dashboard,
                 ui: UIState {
                     selected_menu_item: SideMenuItem::Dashboard,
@@ -923,6 +1051,10 @@ impl TutoringManager {
     }
 
     fn view_student_manager_card_list(&self) -> Vec<Element<'_, Message>> {
+        let today = Local::now().naive_local().date();
+        let current_year = today.year();
+        let current_month = today.month();
+
         let card_list = self
             .domain
             .students
@@ -1045,7 +1177,7 @@ impl TutoringManager {
                                         ..Default::default()
                                     })
                                     .size(12),
-                                text(format!("{}", compute_num_of_completed_sessions(student))),
+                                text(format!("{}", compute_monthly_completed_sessions(student, current_month, current_year))),
                             ]
                             .spacing(5),
                         ),
@@ -1067,7 +1199,12 @@ impl TutoringManager {
                                         ..Default::default()
                                     })
                                     .size(12),
-                                text(format!("GHS {}", compute_accrued_amount(student)))
+                                text(format!("GHS {}", compute_monthly_sum(
+                                            student, 
+                                            current_month, 
+                                            current_year,
+                                            compute_monthly_completed_sessions,
+                                            )))
                             ]
                             .spacing(5)
                         ),
@@ -1417,6 +1554,7 @@ fn menu_item_container<'a>(
 // =========================================
 // CUSTOM COMPONENTS
 // =========================================
+#[derive(Debug)]
 struct IncomeData {
     potential: f32,
     actual: f32,
@@ -1898,6 +2036,8 @@ fn mock_student_data() -> Vec<Student> {
                 payment_type: PaymentType::PerSession,
                 amount: 150.0,
             },
+
+            tution_start_date: Local.with_ymd_and_hms(2025, 11, 1, 00, 00, 00).unwrap()
         },
         Student {
             id: String::from("student2"),
@@ -1923,9 +2063,11 @@ fn mock_student_data() -> Vec<Student> {
                 Local.with_ymd_and_hms(2025, 11, 22, 13, 30, 0).unwrap(),
             ],
             payment_data: PaymentData {
-                payment_type: PaymentType::Monthly,
+                payment_type: PaymentType::PerSession,
                 amount: 150.0,
             },
+
+            tution_start_date: Local.with_ymd_and_hms(2025, 11, 1, 00, 00, 00).unwrap()
         },
     ]
 }

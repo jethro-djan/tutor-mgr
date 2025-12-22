@@ -95,6 +95,53 @@ impl Domain {
         println!("{:#?}", income_data);
         income_data
     }
+
+    fn compute_attendance_data(&self) -> Vec<Attendance> {
+        let students = &self.students;
+
+        let mut students_grouped_by_month: BTreeMap<(u32, i32), Vec<&Student>> = BTreeMap::new();
+
+        for student in students.iter() {
+
+            let student_months: Vec<(u32, i32)> = student.actual_sessions
+                .iter()
+                .map(|dt| (dt.month(), dt.year()))
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+
+            for month_key in student_months {
+                students_grouped_by_month
+                    .entry(month_key)
+                    .or_default()
+                    .push(student);
+            }
+        }
+
+        let attendance_data: Vec<Attendance> = students_grouped_by_month
+            .iter()
+            .map(|(&(m, y), stds)| {
+                let attended_days = stds 
+                    .iter()
+                    .fold(0, |acc, &std| {
+                        std.actual_sessions.len()
+                    }) as i32;
+                    // .map(|std| std.actual_sessions.len())
+
+                let date = NaiveDate::from_ymd_opt(y, m, 1)
+                    .expect("Invalid date construction");
+                let month = date.format("%b").to_string();
+
+
+                Attendance {
+                    attended_days,
+                    month,
+                }
+            })
+            .collect();
+
+        attendance_data
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -576,12 +623,11 @@ impl TutoringManager {
     fn new() -> (Self, Task<Message>) {
         let domain = Domain::load_state_from_db();
         let income_data = domain.compute_income_data();
-        // let income_data = mock_income_data();
-        let attendance_data = mock_attendance_data();
+        let attendance_data = domain.compute_attendance_data();
 
         (
             Self {
-                domain: Domain::load_state_from_db(),
+                domain,
                 current_screen: Screen::Dashboard,
                 ui: UIState {
                     selected_menu_item: SideMenuItem::Dashboard,

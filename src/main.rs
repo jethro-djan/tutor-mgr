@@ -14,15 +14,17 @@ use iced::{
 };
 use lilt::{Animated, Easing};
 use std::collections::BTreeMap;
+use std::rc::Rc;
 use std::time::Instant;
 
 // =========================================
 // DOMAIN MODELS AND LOGIC
 // =========================================
+#[derive(Debug)]
 struct Domain {
     tutor: Tutor,
     students: Vec<Student>,
-    monthly_summaries: Vec<MonthlySummary>,
+    // monthly_summaries: Vec<MonthlySummary>,
 }
 
 impl Domain {
@@ -30,9 +32,9 @@ impl Domain {
         mock_domain()
     }
 
-    pub fn compute_trend_history(&self) -> Vec<TrendData> {
-        compute_trend_history_internal(&self.monthly_summaries)
-    }
+    // pub fn compute_trend_history(&self) -> Vec<TrendData> {
+    //     compute_trend_history_internal(&self.monthly_summaries)
+    // }
 
     pub fn compute_income_data(&self) -> Vec<IncomeData> {
         let students = &self.students;
@@ -68,26 +70,21 @@ impl Domain {
 
                 let potential = stds
                     .iter()
-                    .map(|std| {
-                        match std.payment_data.payment_type {
-                            PaymentType::PerSession => {
-                                std.payment_data.amount *
-                                    (std.tabled_sessions.len() as f32)
-                            }
-                            PaymentType::Monthly => std.payment_data.amount
-                        }
-                    })
+                    .map(|std| compute_monthly_sum(
+                        std, m, y, compute_monthly_scheduled_sessions
+                    ))
                     .sum();
 
                 let date = NaiveDate::from_ymd_opt(y, m, 1)
                     .expect("Invalid date construction");
                 let month = date.format("%b").to_string();
+                let month_year = (month, y);
 
 
                 IncomeData {
                     actual,
                     potential,
-                    month,
+                    month_year,
                 }
             })
             .collect();
@@ -142,6 +139,54 @@ impl Domain {
 
         attendance_data
     }
+
+    pub fn get_actual_income_trend_direction(&self) -> Option<NumberTrend> {
+        let income_data = self.compute_income_data();
+        if income_data.len() < 2 {
+            return None
+        }
+
+        let now = Local::now();
+        let current_month = now.month();
+        let current_year = now.year();
+
+        let prev_month = if current_month == 1 {
+            12 
+        } else {
+            current_month - 1 
+        };
+        let prev_year = current_year - 1;
+
+        let month_year_ctr = |month: u32, year: i32| {
+            let date = NaiveDate::from_ymd_opt(
+                year, 
+                month, 
+                1
+            )
+            .expect("Invalid date construction");
+            let short_month = date.format("%b").to_string();
+            (short_month, year)
+        };
+
+        let prev_month_year = month_year_ctr(prev_month, prev_year);
+
+        let current_month_year = month_year_ctr(current_month, current_year);
+
+
+        let rel_income_data: Vec<&IncomeData> = income_data 
+            .iter()
+            .filter(|data| 
+                data.month_year == prev_month_year ||
+                data.month_year == current_month_year
+            )
+            .collect();
+
+
+        Some(compute_trend
+            (rel_income_data[0].actual, 
+             rel_income_data[1].actual))
+    }
+
 }
 
 #[derive(Copy, Clone)]
@@ -184,6 +229,7 @@ struct YearMonth {
 }
 
 
+#[derive(Debug)]
 struct Student {
     id: String,
     name: PersonalName,
@@ -195,22 +241,26 @@ struct Student {
     tution_start_date: DateTime<Local>,
 }
 
+#[derive(Debug)]
 struct Tutor {
     id: String,
     name: PersonalName,
 }
 
+#[derive(Debug)]
 struct PersonalName {
     first: String,
     last: String,
     other: Option<String>,
 }
 
+#[derive(Debug)]
 struct SessionData {
     day: Weekday,
     time: String,
 }
 
+#[derive(Debug)]
 enum TutorSubject {
     AdditionalMathematics,
     ExtendedMathematics,
@@ -227,13 +277,13 @@ impl TutorSubject {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct PaymentData {
     payment_type: PaymentType,
     amount: f32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum PaymentType {
     PerSession,
     Monthly,
@@ -414,7 +464,7 @@ fn compute_trend(previous: f32, current: f32) -> NumberTrend {
 // APPLICATION STATE
 // =========================================
 struct TutoringManager {
-    domain: Domain,
+    domain: Rc<Domain>,
     current_screen: Screen,
     ui: UIState,
 }
@@ -510,8 +560,8 @@ struct DashboardSummary {
 
 
 impl DashboardSummary {
-    fn compute_from_domain_state() -> Self {
-        let domain = Domain::load_state_from_db();
+    fn compute_from_domain_state(domain: &Domain) -> Self {
+        // let domain = Domain::load_state_from_db();
 
         let today = Local::now().naive_local().date();
         let current_year = today.year();
@@ -560,6 +610,7 @@ impl DashboardSummary {
             total_actual_sessions,
             total_scheduled_sessions,
         };
+
         let actual_revenue = ActualRevenueSummary {
             amount: actual_earnings,
             trend: NumberTrend { trend_direction: TrendDirection::Up, percentage_change: 5.0 }, // placeholder
@@ -621,13 +672,13 @@ enum Message {
 
 impl TutoringManager {
     fn new() -> (Self, Task<Message>) {
-        let domain = Domain::load_state_from_db();
+        let domain = Rc::new(Domain::load_state_from_db());
         let income_data = domain.compute_income_data();
         let attendance_data = domain.compute_attendance_data();
 
         (
             Self {
-                domain,
+                domain: domain.clone(),
                 current_screen: Screen::Dashboard,
                 ui: UIState {
                     selected_menu_item: SideMenuItem::Dashboard,
@@ -645,7 +696,7 @@ impl TutoringManager {
                     hovered_dashboard_card: None,
                     barchart: GroupedBarChart::default(income_data),
                     linechart: LineChart::default(attendance_data),
-                    dashboard_summary: DashboardSummary::compute_from_domain_state(),
+                    dashboard_summary: DashboardSummary::compute_from_domain_state(&domain),
 
                     search_query: String::new(),
                     show_add_student_modal: false,
@@ -1604,7 +1655,8 @@ fn menu_item_container<'a>(
 struct IncomeData {
     potential: f32,
     actual: f32,
-    month: String,
+    month_year: (String, i32),
+
 }
 
 struct GroupedBarChart {
@@ -1679,7 +1731,7 @@ impl<Message> canvas::Program<Message> for GroupedBarChart {
                 let label_y = padding + chart_height + 10.0;
 
                 frame.fill_text(Text {
-                    content: data.month.clone(),
+                    content: data.month_year.0.clone(),
                     position: Point { x: label_x, y: label_y },
                     color: Color::BLACK,
                     size: 11.0.into(),
@@ -2050,7 +2102,7 @@ fn mock_domain() -> Domain {
             } 
         }, 
         students: mock_student_data(), 
-        monthly_summaries: mock_monthly_summaries(),
+        // monthly_summaries: mock_monthly_summaries(),
     }
 }
 
@@ -2134,43 +2186,6 @@ fn mock_monthly_summaries() -> Vec<MonthlySummary> {
             potential_revenue: 1800.0,
             total_actual_sessions: 3,
             total_scheduled_sessions: 4,
-        },
-    ]
-}
-
-fn mock_income_data() -> Vec<IncomeData> {
-    vec![
-        IncomeData {
-            potential: 2000.0,
-            actual: 1500.0,
-            month: "Sep".to_string(),
-        },
-        IncomeData {
-            potential: 1300.0,
-            actual: 1000.0,
-            month: "Oct".to_string(),
-        },
-        IncomeData {
-            potential: 3000.0,
-            actual: 2400.0,
-            month: "Nov".to_string(),
-        },
-    ]
-}
-
-fn mock_attendance_data() -> Vec<Attendance> {
-    vec![
-        Attendance {
-            month: "Sep".to_string(),
-            attended_days: 8,
-        },
-        Attendance {
-            month: "Oct".to_string(),
-            attended_days: 3,
-        },
-        Attendance {
-            month: "Nov".to_string(),
-            attended_days: 5,
         },
     ]
 }

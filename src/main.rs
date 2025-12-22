@@ -140,10 +140,10 @@ impl Domain {
         attendance_data
     }
 
-    pub fn get_actual_income_trend_direction(&self) -> Option<NumberTrend> {
+    pub fn get_actual_income_trend_direction(&self) -> NumberTrend {
         let income_data = self.compute_income_data();
         if income_data.len() < 2 {
-            return None
+            return compute_trend(0.0, income_data[0].actual)
         }
 
         let now = Local::now();
@@ -182,9 +182,7 @@ impl Domain {
             .collect();
 
 
-        Some(compute_trend
-            (rel_income_data[0].actual, 
-             rel_income_data[1].actual))
+        compute_trend (rel_income_data[0].actual, rel_income_data[1].actual)
     }
 
 }
@@ -443,19 +441,18 @@ fn compute_trend_history_internal(monthly_summaries: &[MonthlySummary]) -> Trend
 }
 
 fn compute_trend(previous: f32, current: f32) -> NumberTrend {
-    let percentage_change = if previous == 0.0 {
-        0.0 
+    if previous == 0.0 {
+        NumberTrend::NoData
     } else {
-        (current - previous) / previous * 100.0
-    };
-
-    NumberTrend { 
-        trend_direction: if percentage_change >= 0.0 {
-            TrendDirection::Up
-        } else {
-            TrendDirection::Down
-        },
-        percentage_change: percentage_change.abs(),
+        let percentage_change = ((current - previous) / previous * 100.0).abs();
+        NumberTrend::Trend { 
+            trend_direction: if current >= previous {
+                TrendDirection::Up
+            } else {
+                TrendDirection::Down
+            },
+            percentage_change,
+        }
     }
 }
 
@@ -511,9 +508,12 @@ struct UIState {
 /// Answers the question of whether some metric has increased or decreased from previous
 /// amount
 #[derive(Clone)]
-struct NumberTrend {
-    trend_direction: TrendDirection,
-    percentage_change: f32,
+enum NumberTrend {
+    NoData,
+    Trend {
+        trend_direction: TrendDirection,
+        percentage_change: f32,
+    },
 }
 
 #[derive(Clone)]
@@ -561,7 +561,6 @@ struct DashboardSummary {
 
 impl DashboardSummary {
     fn compute_from_domain_state(domain: &Domain) -> Self {
-        // let domain = Domain::load_state_from_db();
 
         let today = Local::now().naive_local().date();
         let current_year = today.year();
@@ -611,16 +610,18 @@ impl DashboardSummary {
             total_scheduled_sessions,
         };
 
+        let actual_income_trend = domain.get_actual_income_trend_direction();
+
         let actual_revenue = ActualRevenueSummary {
             amount: actual_earnings,
-            trend: NumberTrend { trend_direction: TrendDirection::Up, percentage_change: 5.0 }, // placeholder
+            trend: actual_income_trend,
         };
         let potential_revenue = PotentialRevenueSummary {
             amount: potential_earnings,
         };
         let lost_revenue = LostRevenueSummary {
             amount: potential_earnings - actual_earnings,
-            trend: NumberTrend { trend_direction: TrendDirection::Down, percentage_change: 5.0 } // placeholder
+            trend: NumberTrend::NoData
         };
 
         Self {
@@ -818,7 +819,7 @@ impl TutoringManager {
         struct CardInfo {
             title: String,
             value: String,
-            trend: Option<(String, bool)>,
+            trend: Option<(String, Option<bool>)>,
             hovered_dashboard: Option<usize>,
             variant: DashboardCardVariant,
         }
@@ -833,10 +834,14 @@ impl TutoringManager {
             "--".to_string()
         };
 
-        let trend_format = |trend: &NumberTrend| -> (String, bool) {
-            match trend.trend_direction {
-                TrendDirection::Up => (format!("{:.1}", trend.percentage_change), true),
-                TrendDirection::Down => (format!("{:.1}", trend.percentage_change), false),
+        let trend_format = |trend: &NumberTrend| -> (String, Option<bool>) {
+            match trend {
+                NumberTrend::NoData => (format!("{:.1}%", 0.0), None),
+                NumberTrend::Trend { trend_direction, percentage_change } =>
+                    match trend_direction {
+                        TrendDirection::Up => (format!("{:.1}%", percentage_change), Some(true)),
+                        TrendDirection::Down => (format!("{:.1}%", percentage_change), Some(true)),
+                    }
             }
         };
 
@@ -865,7 +870,7 @@ impl TutoringManager {
             CardInfo {
                 title: "Revenue Lost".into(),
                 value: format!("GHS {:.2}", summary.lost_revenue.amount),
-                trend: Some(trend_format(&summary.lost_revenue.trend)),
+                trend: None,
                 hovered_dashboard: self.ui.hovered_dashboard_card,
                 variant: DashboardCardVariant::RevenueLost,
             },
@@ -919,7 +924,6 @@ impl TutoringManager {
         container(
             Column::new()
                 .spacing(40)
-                .padding(20)
                 .push(self.view_page_header("Dashboard"))
                 .push(summary_section)
                 .push(graph_section),
@@ -1482,7 +1486,7 @@ enum DashboardCardVariant {
 fn metric_card<'a>(
     title: String,
     value: String,
-    trend: Option<(String, bool)>,
+    trend: Option<(String, Option<bool>)>,
     is_hovered: bool,
     card_index: Option<usize>,
     variant: DashboardCardVariant,
@@ -1500,20 +1504,28 @@ fn metric_card<'a>(
     .align_x(Center)
     .spacing(5);
 
-    if let Some((trend_text, is_positive)) = trend {
-        let trend_icon = if is_positive {
-            icons::arrow_up()
-        } else {
-            icons::arrow_down()
+    if let Some((trend_text, is_positive_opt)) = trend {
+        let trend_icon: Option<svg::Handle> = match is_positive_opt {
+            None => None,
+            Some(true) => Some(icons::arrow_up()),
+            Some(false) => Some(icons::arrow_down())
         };
 
-        let trend_row = container(row![
-            svg::Svg::new(trend_icon).width(14).height(14),
-            text(trend_text).size(12).font(Font {
+        let trend_row = match trend_icon {
+            None => container(text(trend_text).size(12).font(Font {
                 weight: font::Weight::Medium,
                 ..Default::default()
-            }),
-        ])
+            })),
+            Some(icon) => container(
+                row![
+                    svg::Svg::new(icon).width(14).height(14),
+                    text(trend_text).size(12).font(Font {
+                        weight: font::Weight::Medium,
+                        ..Default::default()
+                    }),
+                ]
+            )
+        }
         .align_bottom(Length::Fill);
 
         content = content.push(trend_row);

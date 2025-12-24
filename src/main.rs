@@ -1,11 +1,20 @@
-use chrono::{DateTime, Datelike, Duration, Local, Month, NaiveDate, TimeZone, Weekday, };
+mod domain;
+pub mod dashboard;
+pub mod shell;
+mod app;
+pub mod icons;
+pub mod ui_components;
+
+use crate::domain::*;
+
+use chrono::{DateTime, Datelike, Duration, Local, Month, NaiveDate, TimeZone, Weekday};
 use iced::advanced::graphics::core::font;
 use iced::mouse::Interaction;
-use iced::widget::canvas::{self, Frame, Path, Stroke, Text};
 use iced::widget::Grid;
+use iced::widget::canvas::{self, Frame, Path, Stroke, Text};
 use iced::widget::{
-    Canvas, Column, Container, Row, button, column, container, operation::focus_next, mouse_area, row, stack,
-    svg, text, text_input, Button, grid
+    Button, Canvas, Column, Container, Row, button, column, container, grid, mouse_area,
+    operation::focus_next, row, stack, svg, text, text_input,
 };
 use iced::window::frames;
 use iced::{
@@ -13,179 +22,9 @@ use iced::{
     Renderer, Shadow, Size, Subscription, Task, Theme, Vector,
 };
 use lilt::{Animated, Easing};
-use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::time::Instant;
 
-// =========================================
-// DOMAIN MODELS AND LOGIC
-// =========================================
-#[derive(Debug)]
-struct Domain {
-    tutor: Tutor,
-    students: Vec<Student>,
-    // monthly_summaries: Vec<MonthlySummary>,
-}
-
-impl Domain {
-    fn load_state_from_db() -> Self {
-        mock_domain()
-    }
-
-    // pub fn compute_trend_history(&self) -> Vec<TrendData> {
-    //     compute_trend_history_internal(&self.monthly_summaries)
-    // }
-
-    pub fn compute_income_data(&self) -> Vec<IncomeData> {
-        let students = &self.students;
-
-        let mut students_grouped_by_month: BTreeMap<(u32, i32), Vec<&Student>> = BTreeMap::new();
-
-        for student in students.iter() {
-
-            let student_months: Vec<(u32, i32)> = student.actual_sessions
-                .iter()
-                .map(|dt| (dt.month(), dt.year()))
-                .collect::<std::collections::HashSet<_>>()
-                .into_iter()
-                .collect();
-
-            for month_key in student_months {
-                students_grouped_by_month
-                    .entry(month_key)
-                    .or_default()
-                    .push(student);
-            }
-        }
-
-        let income_data: Vec<IncomeData> = students_grouped_by_month
-            .iter()
-            .map(|(&(m, y), stds)| {
-                let actual = stds
-                    .iter()
-                    .map(|std| compute_monthly_sum(
-                        std, m, y, compute_monthly_completed_sessions
-                    ))
-                    .sum();
-
-                let potential = stds
-                    .iter()
-                    .map(|std| compute_monthly_sum(
-                        std, m, y, compute_monthly_scheduled_sessions
-                    ))
-                    .sum();
-
-                let date = NaiveDate::from_ymd_opt(y, m, 1)
-                    .expect("Invalid date construction");
-                let month = date.format("%b").to_string();
-                let month_year = (month, y);
-
-
-                IncomeData {
-                    actual,
-                    potential,
-                    month_year,
-                }
-            })
-            .collect();
-
-        println!("{:#?}", income_data);
-        income_data
-    }
-
-    fn compute_attendance_data(&self) -> Vec<Attendance> {
-        let students = &self.students;
-
-        let mut students_grouped_by_month: BTreeMap<(u32, i32), Vec<&Student>> = BTreeMap::new();
-
-        for student in students.iter() {
-
-            let student_months: Vec<(u32, i32)> = student.actual_sessions
-                .iter()
-                .map(|dt| (dt.month(), dt.year()))
-                .collect::<std::collections::HashSet<_>>()
-                .into_iter()
-                .collect();
-
-            for month_key in student_months {
-                students_grouped_by_month
-                    .entry(month_key)
-                    .or_default()
-                    .push(student);
-            }
-        }
-
-        let attendance_data: Vec<Attendance> = students_grouped_by_month
-            .iter()
-            .map(|(&(m, y), stds)| {
-                let attended_days = stds 
-                    .iter()
-                    .fold(0, |acc, &std| {
-                        std.actual_sessions.len()
-                    }) as i32;
-                    // .map(|std| std.actual_sessions.len())
-
-                let date = NaiveDate::from_ymd_opt(y, m, 1)
-                    .expect("Invalid date construction");
-                let month = date.format("%b").to_string();
-
-
-                Attendance {
-                    attended_days,
-                    month,
-                }
-            })
-            .collect();
-
-        attendance_data
-    }
-
-    pub fn get_actual_income_trend_direction(&self) -> NumberTrend {
-        let income_data = self.compute_income_data();
-        if income_data.len() < 2 {
-            return compute_trend(0.0, income_data[0].actual)
-        }
-
-        let now = Local::now();
-        let current_month = now.month();
-        let current_year = now.year();
-
-        let prev_month = if current_month == 1 {
-            12 
-        } else {
-            current_month - 1 
-        };
-        let prev_year = current_year - 1;
-
-        let month_year_ctr = |month: u32, year: i32| {
-            let date = NaiveDate::from_ymd_opt(
-                year, 
-                month, 
-                1
-            )
-            .expect("Invalid date construction");
-            let short_month = date.format("%b").to_string();
-            (short_month, year)
-        };
-
-        let prev_month_year = month_year_ctr(prev_month, prev_year);
-
-        let current_month_year = month_year_ctr(current_month, current_year);
-
-
-        let rel_income_data: Vec<&IncomeData> = income_data 
-            .iter()
-            .filter(|data| 
-                data.month_year == prev_month_year ||
-                data.month_year == current_month_year
-            )
-            .collect();
-
-
-        compute_trend (rel_income_data[0].actual, rel_income_data[1].actual)
-    }
-
-}
 
 #[derive(Copy, Clone)]
 struct MonthlySummary {
@@ -194,266 +33,6 @@ struct MonthlySummary {
     potential_revenue: f32,
     total_scheduled_sessions: usize,
     total_actual_sessions: usize,
-}
-
-#[derive(Clone)]
-struct TrendData {
-    revenue_trend: ActualRevenueTrendData,
-    sessions_trend: ActualSessionTrendData,
-}
-
-#[derive(Clone)]
-struct ActualRevenueTrendData {
-    trend: NumberTrend,
-    current_revenue: f32,
-    previous_revenue: f32,
-    year_month: YearMonth,
-}
-
-#[derive(Clone)]
-struct ActualSessionTrendData {
-    trend: NumberTrend,
-    current_sessions: f32,
-    previous_sessions: f32,
-    year_month: YearMonth,
-}
-
-type TrendHistory = Vec<TrendData>;
-
-#[derive(Copy, Clone)]
-struct YearMonth {
-    year: i32,
-    month: Month,
-}
-
-
-#[derive(Debug)]
-struct Student {
-    id: String,
-    name: PersonalName,
-    subject: TutorSubject,
-    tabled_sessions: Vec<SessionData>,
-    actual_sessions: Vec<DateTime<Local>>,
-
-    payment_data: PaymentData,
-    tution_start_date: DateTime<Local>,
-}
-
-#[derive(Debug)]
-struct Tutor {
-    id: String,
-    name: PersonalName,
-}
-
-#[derive(Debug)]
-struct PersonalName {
-    first: String,
-    last: String,
-    other: Option<String>,
-}
-
-#[derive(Debug)]
-struct SessionData {
-    day: Weekday,
-    time: String,
-}
-
-#[derive(Debug)]
-enum TutorSubject {
-    AdditionalMathematics,
-    ExtendedMathematics,
-    Statistics,
-}
-
-impl TutorSubject {
-    fn as_str(&self) -> &str {
-        match self {
-            TutorSubject::AdditionalMathematics => "Additional Mathematics",
-            TutorSubject::ExtendedMathematics => "Extended Mathematics",
-            TutorSubject::Statistics => "Statistics",
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-struct PaymentData {
-    payment_type: PaymentType,
-    amount: f32,
-}
-
-#[derive(Clone, Debug)]
-enum PaymentType {
-    PerSession,
-    Monthly,
-}
-
-fn compute_monthly_sum(
-    student: &Student, 
-    month: u32,
-    year: i32,
-    compute_sessions_fn: fn(&Student, u32, i32) -> i32
-) -> f32 {
-    match student.payment_data.payment_type {
-        PaymentType::PerSession => {
-            let no_of_days = compute_sessions_fn(
-                student, 
-                month,
-                year, 
-            );
-            student.payment_data.amount * (no_of_days as f32)
-        }
-        // TODO: Logic for actual monthly payment taken vs agreed
-        // Maybe based on targets or missed sessions and 
-        // deductions are per contract
-        PaymentType::Monthly => student.payment_data.amount
-    }
-}
-
-fn get_month_date_range(year: i32, month: u32) -> (NaiveDate, NaiveDate) {
-    let month_start = NaiveDate::from_ymd_opt(year, month, 1).unwrap();
-    let month_end = if month == 12 {
-        NaiveDate::from_ymd_opt(year + 1, 1, 1).unwrap()
-    } else {
-        NaiveDate::from_ymd_opt(year, month + 1, 1).unwrap()
-    } - Duration::days(1);
-    
-    (month_start, month_end)
-}
-
-fn get_all_dates_in_month(year: i32, month: u32) -> Vec<NaiveDate> {
-    let (month_start, month_end) = get_month_date_range(year, month);
-    let duration = month_end.signed_duration_since(month_start);
-    
-    (0..=duration.num_days())
-        .map(|i| month_start + Duration::days(i))
-        .collect()
-}
-
-fn get_scheduled_weekdays(student: &Student) -> Vec<Weekday> {
-    student
-        .tabled_sessions
-        .iter()
-        .map(|session| session.day)
-        .collect()
-}
-
-fn compute_monthly_scheduled_sessions(
-    student: &Student,
-    month: u32,
-    year: i32,
-) -> i32 {
-    let all_dates = get_all_dates_in_month(year, month);
-    let session_days = get_scheduled_weekdays(student);
-
-    all_dates
-        .iter()
-        .filter(|date| session_days.contains(&date.weekday()))
-        .count() as i32
-}
-
-fn compute_monthly_completed_sessions(
-    student: &Student,
-    month: u32,
-    year: i32,
-) -> i32 {
-    let (month_start, month_end) = get_month_date_range(year, month);
-    let session_days = get_scheduled_weekdays(student);
-
-    let actual_session_dates: Vec<NaiveDate> = student
-        .actual_sessions
-        .iter()
-        .map(|dt| dt.naive_local().date())
-        .filter(|date| date >= &month_start && date <= &month_end)
-        .collect();
-
-    actual_session_dates
-        .iter()
-        .filter(|date| session_days.contains(&date.weekday()))
-        .count() as i32
-}
-
-fn get_next_session(student: &Student) -> NaiveDate {
-    let tabled_next_days: Vec<Weekday> = student
-        .tabled_sessions
-        .iter()
-        .map(|session| session.day)
-        .collect();
-
-    let today = Local::now().naive_local().date();
-    let next_seven_dates: Vec<NaiveDate> = (1..=7).map(|i| today + Duration::days(i)).collect();
-
-    next_seven_dates
-        .into_iter()
-        .filter(|date| tabled_next_days.contains(&date.weekday()))
-        .min()
-        .unwrap()
-}
-
-/// Computes month-over-month trends for some eligible data
-fn compute_trend_history_internal(monthly_summaries: &[MonthlySummary]) -> TrendHistory {
-    if monthly_summaries.len() < 2 {
-        return Vec::<TrendData>::new()
-    }
-
-    let mut sorted_summaries = monthly_summaries.to_vec();
-    sorted_summaries.sort_by_key(|summary| summary.year_month.month);
-
-    let mut revenue_trend = Vec::new();
-    let mut sessions_trend = Vec::new();
-    
-    let mut trend_history = Vec::new();
-
-    for i in 1..monthly_summaries.len() {
-        let previous = monthly_summaries[i -1];
-        let current = monthly_summaries[i];
-
-        revenue_trend.push(ActualRevenueTrendData {
-            trend: compute_trend(previous.actual_revenue, current.actual_revenue),
-            current_revenue: current.actual_revenue,
-            previous_revenue: previous.actual_revenue,
-            year_month: current.year_month,
-        });
-
-        sessions_trend.push(ActualSessionTrendData {
-            trend: compute_trend(previous.actual_revenue, current.actual_revenue),
-            current_sessions: current.actual_revenue,
-            previous_sessions: previous.actual_revenue,
-            year_month: current.year_month,
-        });
-
-        trend_history.push(TrendData {
-            revenue_trend: ActualRevenueTrendData {
-                trend: compute_trend(previous.actual_revenue, current.actual_revenue),
-                current_revenue: current.actual_revenue,
-                previous_revenue: previous.actual_revenue,
-                year_month: current.year_month,
-            },
-            sessions_trend: ActualSessionTrendData { 
-                trend: compute_trend(previous.total_actual_sessions as f32, current.total_scheduled_sessions as f32),
-                current_sessions: current.total_actual_sessions as f32, 
-                previous_sessions: previous.total_actual_sessions as f32, 
-                year_month: current.year_month, 
-            }
-        })
-    }
-
-    trend_history
-}
-
-fn compute_trend(previous: f32, current: f32) -> NumberTrend {
-    if previous == 0.0 {
-        NumberTrend::NoData
-    } else {
-        let percentage_change = ((current - previous) / previous * 100.0).abs();
-        NumberTrend::Trend { 
-            trend_direction: if current >= previous {
-                TrendDirection::Up
-            } else {
-                TrendDirection::Down
-            },
-            percentage_change,
-        }
-    }
 }
 
 
@@ -503,24 +82,6 @@ struct UIState {
     student_info: StudentInfo,
 }
 
-/// Info about metric trend from previous month
-///
-/// Answers the question of whether some metric has increased or decreased from previous
-/// amount
-#[derive(Clone)]
-enum NumberTrend {
-    NoData,
-    Trend {
-        trend_direction: TrendDirection,
-        percentage_change: f32,
-    },
-}
-
-#[derive(Clone)]
-enum TrendDirection {
-    Up,
-    Down,
-}
 
 struct ActualRevenueSummary {
     amount: f32,
@@ -550,7 +111,6 @@ struct MonthlySummaryWithTrend {
     lost_revenue: LostRevenueSummary,
 }
 
-
 struct DashboardSummary {
     attendance: AttendanceSummary,
     actual_revenue: ActualRevenueSummary,
@@ -558,51 +118,53 @@ struct DashboardSummary {
     lost_revenue: LostRevenueSummary,
 }
 
-
 impl DashboardSummary {
     fn compute_from_domain_state(domain: &Domain) -> Self {
-
         let today = Local::now().naive_local().date();
         let current_year = today.year();
         let current_month = today.month();
 
-        let total_actual_sessions = domain.students
+        let total_actual_sessions = domain
+            .students
             .iter()
-            .map(|student| compute_monthly_completed_sessions(
-                student, 
-                current_month, 
-                current_year
-            ) as usize)
+            .map(|student| {
+                compute_monthly_completed_sessions(student, current_month, current_year) as usize
+            })
             .sum();
 
-        let total_scheduled_sessions = domain.students
+        let total_scheduled_sessions = domain
+            .students
             .iter()
-            .map(|student| compute_monthly_scheduled_sessions(
-                student, 
-                current_month, 
-                current_year
-            ) as usize)
+            .map(|student| {
+                compute_monthly_scheduled_sessions(student, current_month, current_year) as usize
+            })
             .sum();
         println!("total_scheduled_sessions: {}", total_scheduled_sessions);
 
-        let potential_earnings = domain.students
+        let potential_earnings = domain
+            .students
             .iter()
-            .map(|std| compute_monthly_sum(
-                std,
-                current_month,
-                current_year,
-                compute_monthly_scheduled_sessions,
-            ))
+            .map(|std| {
+                compute_monthly_sum(
+                    std,
+                    current_month,
+                    current_year,
+                    compute_monthly_scheduled_sessions,
+                )
+            })
             .sum();
 
-        let actual_earnings = domain.students
+        let actual_earnings = domain
+            .students
             .iter()
-            .map(|std| compute_monthly_sum(
-                std,
-                current_month,
-                current_year,
-                compute_monthly_completed_sessions,
-            ))
+            .map(|std| {
+                compute_monthly_sum(
+                    std,
+                    current_month,
+                    current_year,
+                    compute_monthly_completed_sessions,
+                )
+            })
             .sum();
 
         let attendance = AttendanceSummary {
@@ -621,7 +183,7 @@ impl DashboardSummary {
         };
         let lost_revenue = LostRevenueSummary {
             amount: potential_earnings - actual_earnings,
-            trend: NumberTrend::NoData
+            trend: NumberTrend::NoData,
         };
 
         Self {
@@ -632,7 +194,6 @@ impl DashboardSummary {
         }
     }
 }
-
 
 #[derive(Debug)]
 enum Screen {
@@ -827,8 +388,11 @@ impl TutoringManager {
         let summary = &self.ui.dashboard_summary;
 
         let attendance_rate = if summary.attendance.total_scheduled_sessions > 0 {
-            format!("{:.0}%", 
-                summary.attendance.total_actual_sessions as f32 / summary.attendance.total_scheduled_sessions as f32 * 100.0
+            format!(
+                "{:.0}%",
+                summary.attendance.total_actual_sessions as f32
+                    / summary.attendance.total_scheduled_sessions as f32
+                    * 100.0
             )
         } else {
             "--".to_string()
@@ -837,11 +401,13 @@ impl TutoringManager {
         let trend_format = |trend: &NumberTrend| -> (String, Option<bool>) {
             match trend {
                 NumberTrend::NoData => (format!("{:.1}%", 0.0), None),
-                NumberTrend::Trend { trend_direction, percentage_change } =>
-                    match trend_direction {
-                        TrendDirection::Up => (format!("{:.1}%", percentage_change), Some(true)),
-                        TrendDirection::Down => (format!("{:.1}%", percentage_change), Some(true)),
-                    }
+                NumberTrend::Trend {
+                    trend_direction,
+                    percentage_change,
+                } => match trend_direction {
+                    TrendDirection::Up => (format!("{:.1}%", percentage_change), Some(true)),
+                    TrendDirection::Down => (format!("{:.1}%", percentage_change), Some(true)),
+                },
             }
         };
 
@@ -899,9 +465,7 @@ impl TutoringManager {
 
         let summary_section = column![
             summary_section_title,
-            container(summary_cards_row)
-                .align_x(Center)
-                .max_width(900),
+            container(summary_cards_row).align_x(Center).max_width(900),
         ]
         .spacing(12);
 
@@ -1130,11 +694,7 @@ impl TutoringManager {
         };
 
         let logo = svg(logo_handle)
-            .width(if self.ui.side_menu_hovered {
-                140
-            } else {
-                40
-            })
+            .width(if self.ui.side_menu_hovered { 140 } else { 40 })
             .height(40);
 
         container(logo)
@@ -1278,7 +838,14 @@ impl TutoringManager {
                                         ..Default::default()
                                     })
                                     .size(12),
-                                text(format!("{}", compute_monthly_completed_sessions(student, current_month, current_year))),
+                                text(format!(
+                                    "{}",
+                                    compute_monthly_completed_sessions(
+                                        student,
+                                        current_month,
+                                        current_year
+                                    )
+                                )),
                             ]
                             .spacing(5),
                         ),
@@ -1300,12 +867,15 @@ impl TutoringManager {
                                         ..Default::default()
                                     })
                                     .size(12),
-                                text(format!("GHS {}", compute_monthly_sum(
-                                            student, 
-                                            current_month, 
-                                            current_year,
-                                            compute_monthly_completed_sessions,
-                                            )))
+                                text(format!(
+                                    "GHS {}",
+                                    compute_monthly_sum(
+                                        student,
+                                        current_month,
+                                        current_year,
+                                        compute_monthly_completed_sessions,
+                                    )
+                                ))
                             ]
                             .spacing(5)
                         ),
@@ -1319,11 +889,9 @@ impl TutoringManager {
                         ui_button(
                             "Add Session",
                             12.0,
-
                             icons::edit(),
                             16.0,
                             18.0,
-
                             |_| Color::WHITE,
                             |_| Color::BLACK,
                         )
@@ -1333,11 +901,9 @@ impl TutoringManager {
                         ui_button(
                             "Edit",
                             12.0,
-
                             icons::edit(),
                             16.0,
                             18.0,
-
                             |theme| theme.extended_palette().background.weak.text,
                             |theme| theme.extended_palette().background.weak.color,
                         )
@@ -1401,8 +967,7 @@ impl TutoringManager {
             .height(Length::Fill);
 
         container(column![
-            container(text!("Actual vs Potential Earnings").size(20))
-                .center_x(Length::Fill),
+            container(text!("Actual vs Potential Earnings").size(20)).center_x(Length::Fill),
             chart
         ])
         // .width(Length::FillPortion(3))
@@ -1426,8 +991,7 @@ impl TutoringManager {
             .height(Length::Fill);
 
         container(column![
-            container(text!("Attendance Rate").size(20))
-                .center_x(Length::Fill),
+            container(text!("Attendance Rate").size(20)).center_x(Length::Fill),
             chart
         ])
         // .width(Length::FillPortion(2))
@@ -1508,7 +1072,7 @@ fn metric_card<'a>(
         let trend_icon: Option<svg::Handle> = match is_positive_opt {
             None => None,
             Some(true) => Some(icons::arrow_up()),
-            Some(false) => Some(icons::arrow_down())
+            Some(false) => Some(icons::arrow_down()),
         };
 
         let trend_row = match trend_icon {
@@ -1516,15 +1080,13 @@ fn metric_card<'a>(
                 weight: font::Weight::Medium,
                 ..Default::default()
             })),
-            Some(icon) => container(
-                row![
-                    svg::Svg::new(icon).width(14).height(14),
-                    text(trend_text).size(12).font(Font {
-                        weight: font::Weight::Medium,
-                        ..Default::default()
-                    }),
-                ]
-            )
+            Some(icon) => container(row![
+                svg::Svg::new(icon).width(14).height(14),
+                text(trend_text).size(12).font(Font {
+                    weight: font::Weight::Medium,
+                    ..Default::default()
+                }),
+            ]),
         }
         .align_bottom(Length::Fill);
 
@@ -1578,21 +1140,20 @@ fn ui_button<'a>(
                     }),
             ]
             .spacing(5)
-            .align_y(Center)
+            .align_y(Center),
         )
-        .align_x(Center)
+        .align_x(Center),
     )
-    .style(move |theme: &Theme, _status: button::Status| {
-        button::Style {
+    .style(
+        move |theme: &Theme, _status: button::Status| button::Style {
             background: Some(Background::Color(bg_color_fn(theme))),
             border: Border {
                 radius: 10.0.into(),
                 ..Default::default()
             },
             ..Default::default()
-        }
-    })
-
+        },
+    )
 }
 
 fn menu_item_container<'a>(
@@ -1663,13 +1224,12 @@ fn menu_item_container<'a>(
 // =========================================
 // CUSTOM COMPONENTS
 // =========================================
-#[derive(Debug)]
-struct IncomeData {
-    potential: f32,
-    actual: f32,
-    month_year: (String, i32),
-
-}
+// #[derive(Debug)]
+// struct IncomeData {
+//     potential: f32,
+//     actual: f32,
+//     month_year: (String, i32),
+// }
 
 struct GroupedBarChart {
     data: Vec<IncomeData>,
@@ -1744,12 +1304,14 @@ impl<Message> canvas::Program<Message> for GroupedBarChart {
 
                 frame.fill_text(Text {
                     content: data.month_year.0.clone(),
-                    position: Point { x: label_x, y: label_y },
+                    position: Point {
+                        x: label_x,
+                        y: label_y,
+                    },
                     color: Color::BLACK,
                     size: 11.0.into(),
                     align_x: iced::advanced::text::Alignment::Center,
                     ..Default::default()
-
                 });
             }
         });
@@ -1762,10 +1324,10 @@ struct LineChart {
     cache: canvas::Cache,
 }
 
-struct Attendance {
-    month: String,
-    attended_days: i32,
-}
+// struct Attendance {
+//     month: String,
+//     attended_days: i32,
+// }
 
 impl LineChart {
     fn default(data: Vec<Attendance>) -> Self {
@@ -1788,12 +1350,7 @@ impl<Message> canvas::Program<Message> for LineChart {
         _cursor: iced::advanced::mouse::Cursor,
     ) -> Vec<canvas::Geometry> {
         let geometry = self.cache.draw(renderer, bounds.size(), |frame| {
-            let max_bar = self
-                .data
-                .iter()
-                .map(|dp| dp.attended_days)
-                .max()
-                .unwrap() as f32;
+            let max_bar = self.data.iter().map(|dp| dp.attended_days).max().unwrap() as f32;
             let padding = 20.0;
             let chart_width = frame.width() - padding * 2.0;
             let chart_height = frame.height() - padding * 2.5;
@@ -1805,7 +1362,8 @@ impl<Message> canvas::Program<Message> for LineChart {
             // for axes
             draw_axes(frame, padding, chart_width, chart_height);
 
-            let points: Vec<Point> = self.data 
+            let points: Vec<Point> = self
+                .data
                 .iter()
                 .enumerate()
                 .map(|(i, dp)| {
@@ -1830,10 +1388,8 @@ impl<Message> canvas::Program<Message> for LineChart {
             for window in points.windows(2) {
                 let line = Path::line(window[0], window[1]);
                 frame.stroke(
-                    &line, 
-                    Stroke::default()
-                        .with_color(Color::BLACK)
-                        .with_width(1.5),
+                    &line,
+                    Stroke::default().with_color(Color::BLACK).with_width(1.5),
                 );
             }
 
@@ -1846,12 +1402,14 @@ impl<Message> canvas::Program<Message> for LineChart {
 
                 frame.fill_text(Text {
                     content: data.month.clone(),
-                    position: Point { x: label_x, y: label_y },
+                    position: Point {
+                        x: label_x,
+                        y: label_y,
+                    },
                     color: Color::BLACK,
                     size: 11.0.into(),
                     align_x: iced::advanced::text::Alignment::Center,
                     ..Default::default()
-
                 });
             }
         });
@@ -1949,280 +1507,30 @@ mod styles {
     }
 }
 
-// =========================================
-// ICONS & ASSETS
-// =========================================
-mod icons {
-    use iced::widget::svg;
-    use std::sync::OnceLock;
-
-    static PLUS: OnceLock<svg::Handle> = OnceLock::new();
-    static EDIT: OnceLock<svg::Handle> = OnceLock::new();
-    static CALENDAR: OnceLock<svg::Handle> = OnceLock::new();
-    static SCHEDULE: OnceLock<svg::Handle> = OnceLock::new();
-    static CHECK_CIRCLE: OnceLock<svg::Handle> = OnceLock::new();
-    static PAYMENTS: OnceLock<svg::Handle> = OnceLock::new();
-    static DASHBOARD: OnceLock<svg::Handle> = OnceLock::new();
-    static ARROW_DOWN: OnceLock<svg::Handle> = OnceLock::new();
-    static ARROW_UP: OnceLock<svg::Handle> = OnceLock::new();
-    static STUDENT: OnceLock<svg::Handle> = OnceLock::new();
-    static LOGO: OnceLock<svg::Handle> = OnceLock::new();
-    static LOGO_EXPANDED: OnceLock<svg::Handle> = OnceLock::new();
-    static SETTINGS: OnceLock<svg::Handle> = OnceLock::new();
-    static LOGOUT: OnceLock<svg::Handle> = OnceLock::new();
-
-    fn icon_path(name: &str) -> String {
-        format!("{}/resources/icons/{}", env!("CARGO_MANIFEST_DIR"), name)
-    }
-
-    pub fn plus() -> svg::Handle {
-        PLUS.get_or_init(|| {
-            svg::Handle::from_path(icon_path("add_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"))
-        })
-        .clone()
-    }
-
-    pub fn edit() -> svg::Handle {
-        EDIT.get_or_init(|| svg::Handle::from_path(icon_path("pen-to-square-regular-full.svg")))
-            .clone()
-    }
-
-    pub fn calendar() -> svg::Handle {
-        CALENDAR
-            .get_or_init(|| {
-                svg::Handle::from_path(icon_path(
-                    "calendar_today_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg",
-                ))
-            })
-            .clone()
-    }
-
-    pub fn schedule() -> svg::Handle {
-        SCHEDULE
-            .get_or_init(|| {
-                svg::Handle::from_path(icon_path(
-                    "schedule_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg",
-                ))
-            })
-            .clone()
-    }
-
-    pub fn check_circle() -> svg::Handle {
-        CHECK_CIRCLE
-            .get_or_init(|| {
-                svg::Handle::from_path(icon_path(
-                    "check_circle_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg",
-                ))
-            })
-            .clone()
-    }
-
-    pub fn payments() -> svg::Handle {
-        PAYMENTS
-            .get_or_init(|| {
-                svg::Handle::from_path(icon_path(
-                    "payments_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg",
-                ))
-            })
-            .clone()
-    }
-
-    pub fn dashboard() -> svg::Handle {
-        DASHBOARD
-            .get_or_init(|| {
-                svg::Handle::from_path(icon_path(
-                    "dashboard_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg",
-                ))
-            })
-            .clone()
-    }
-
-    pub fn student_manager() -> svg::Handle {
-        STUDENT
-            .get_or_init(|| {
-                svg::Handle::from_path(icon_path(
-                    "school_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg",
-                ))
-            })
-            .clone()
-    }
-
-    pub fn arrow_up() -> svg::Handle {
-        ARROW_UP
-            .get_or_init(|| {
-                svg::Handle::from_path(icon_path(
-                    "arrow_upward_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg",
-                ))
-            })
-            .clone()
-    }
-
-    pub fn arrow_down() -> svg::Handle {
-        ARROW_DOWN
-            .get_or_init(|| {
-                svg::Handle::from_path(icon_path(
-                    "arrow_downward_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg",
-                ))
-            })
-            .clone()
-    }
-
-    pub fn logo() -> svg::Handle {
-        LOGO.get_or_init(|| svg::Handle::from_path(icon_path("nhoma_short_logo.svg")))
-            .clone()
-    }
-
-    pub fn logo_expanded() -> svg::Handle {
-        LOGO_EXPANDED
-            .get_or_init(|| svg::Handle::from_path(icon_path("nhoma_logo.svg")))
-            .clone()
-    }
-
-    pub fn settings() -> svg::Handle {
-        SETTINGS
-            .get_or_init(|| {
-                svg::Handle::from_path(icon_path(
-                    "settings_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg",
-                ))
-            })
-            .clone()
-    }
-
-    pub fn logout() -> svg::Handle {
-        LOGOUT
-            .get_or_init(|| {
-                svg::Handle::from_path(icon_path(
-                    "logout_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg",
-                ))
-            })
-            .clone()
-    }
-}
-
-// =========================================
-// MOCK DATA & TESTING
-// =========================================
-#[cfg(debug_assertions)]
-fn mock_domain() -> Domain {
-    Domain { 
-        tutor: Tutor { 
-            id: String::from("tutor1"), 
-            name: PersonalName { 
-                first: String::from("Andy"), 
-                last: String::from("Murray"), 
-                other: None::<String> 
-            } 
-        }, 
-        students: mock_student_data(), 
-        // monthly_summaries: mock_monthly_summaries(),
-    }
-}
-
-fn mock_student_data() -> Vec<Student> {
-    vec![
-        Student {
-            id: String::from("student1"),
-            name: PersonalName {
-                first: String::from("Mary"),
-                last: String::from("Jane"),
-                other: None,
-            },
-            subject: TutorSubject::AdditionalMathematics,
-            tabled_sessions: vec![
-                SessionData {
-                    day: Weekday::Tue,
-                    time: String::from("5:30 PM"),
-                },
-                SessionData {
-                    day: Weekday::Thu,
-                    time: String::from("5:30 PM"),
-                },
-            ],
-            actual_sessions: vec![
-                Local.with_ymd_and_hms(2025, 11, 4, 17, 30, 0).unwrap(),
-                Local.with_ymd_and_hms(2025, 11, 6, 13, 30, 0).unwrap(),
-            ],
-            payment_data: PaymentData {
-                payment_type: PaymentType::PerSession,
-                amount: 150.0,
-            },
-
-            tution_start_date: Local.with_ymd_and_hms(2025, 11, 1, 00, 00, 00).unwrap()
-        },
-        Student {
-            id: String::from("student2"),
-            name: PersonalName {
-                first: String::from("Peter"),
-                last: String::from("Parker"),
-                other: None,
-            },
-            subject: TutorSubject::ExtendedMathematics,
-            tabled_sessions: vec![
-                SessionData {
-                    day: Weekday::Wed,
-                    time: String::from("4:00 PM"),
-                },
-                SessionData {
-                    day: Weekday::Sat,
-                    time: String::from("1:30 PM"),
-                },
-            ],
-            actual_sessions: vec![
-                Local.with_ymd_and_hms(2025, 11, 5, 16, 0, 0).unwrap(),
-                Local.with_ymd_and_hms(2025, 11, 8, 13, 30, 0).unwrap(),
-                Local.with_ymd_and_hms(2025, 11, 22, 13, 30, 0).unwrap(),
-            ],
-            payment_data: PaymentData {
-                payment_type: PaymentType::PerSession,
-                amount: 150.0,
-            },
-
-            tution_start_date: Local.with_ymd_and_hms(2025, 11, 1, 00, 00, 00).unwrap()
-        },
-    ]
-}
-
-fn mock_monthly_summaries() -> Vec<MonthlySummary> {
-    vec![
-        MonthlySummary {
-            year_month: YearMonth { year: 2025, month: Month::October },
-            actual_revenue: 1500.0,
-            potential_revenue: 2000.0,
-            total_actual_sessions: 5,
-            total_scheduled_sessions: 8,
-        },
-
-        MonthlySummary {
-            year_month: YearMonth { year: 2025, month: Month::November },
-            actual_revenue: 1200.0,
-            potential_revenue: 1800.0,
-            total_actual_sessions: 3,
-            total_scheduled_sessions: 4,
-        },
-    ]
-}
 
 // =========================================
 // MAIN
 // =========================================
+use crate::app::App;
+
 fn main() -> iced::Result {
     iced::application(
-        TutoringManager::new,
-        TutoringManager::update,
-        TutoringManager::view,
+        App::new,
+        App::update,
+        App::view,
     )
-    .title(TutoringManager::title)
-    .subscription(TutoringManager::subscription)
+    .title(App::title)
+    .subscription(App::subscription)
     .window(iced::window::Settings {
-        size: Size::new(1200.0, 800.0), 
-        maximized: false, 
-        fullscreen: false, 
-        min_size: Some(Size::new(900.0, 700.0)), 
-        resizable: true, 
-        closeable: true, 
-        minimizable: true, 
-        icon: None, 
-        exit_on_close_request: true, 
+        size: Size::new(1200.0, 800.0),
+        maximized: false,
+        fullscreen: false,
+        min_size: Some(Size::new(900.0, 700.0)),
+        resizable: true,
+        closeable: true,
+        minimizable: true,
+        icon: None,
+        exit_on_close_request: true,
         ..Default::default()
     })
     .run()

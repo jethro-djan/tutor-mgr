@@ -1,9 +1,11 @@
-mod domain;
+pub mod domain;
 pub mod dashboard;
 pub mod shell;
-mod app;
 pub mod icons;
 pub mod ui_components;
+pub mod students;
+
+mod app;
 
 use crate::domain::*;
 

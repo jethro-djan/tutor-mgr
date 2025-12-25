@@ -5,6 +5,7 @@ use crate::domain::Domain;
 
 use crate::shell::{self, ShellState, Screen};
 use crate::dashboard::{self, DashboardState};
+use crate::students::{self, StudentManagerState};
 
 use iced::{Element, Task, Subscription};
 
@@ -12,13 +13,13 @@ pub struct App {
     pub domain: Option<Rc<Domain>>,
     pub shell: ShellState,
     pub dashboard: DashboardState,
-    // pub students: StudentState,
+    pub students: StudentManagerState,
 }
 
 pub enum AppMsg {
     Shell(shell::Msg),
     Dashboard(dashboard::Msg),
-    // Students(students::Msg),
+    StudentManager(students::Msg),
 }
 
 impl App {
@@ -29,6 +30,7 @@ impl App {
             domain: None,
             shell: ShellState::default(),
             dashboard: DashboardState::new(&domain),
+            students: StudentManagerState::new(&domain)
         };
 
         (app, Task::none())
@@ -46,10 +48,10 @@ impl App {
                     .map(AppMsg::Dashboard)
             }
 
-            // AppMsg::Students(msg) => {
-            //     students::update(&mut self.students, msg, &self.domain);
-            //     Task::none()
-            // }
+            AppMsg::StudentManager(msg) => {
+                students::update(&mut self.students, msg)
+                    .map(AppMsg::StudentManager)
+            }
         }
     }
 
@@ -72,8 +74,8 @@ impl App {
             }
             Screen::StudentManager => {
                 // Placeholder until I implement students view
-                dashboard::view(&self.dashboard)
-                    .map(AppMsg::Dashboard)
+                students::view(&self.students)
+                    .map(AppMsg::StudentManager)
             }
             Screen::Settings | Screen::Logout => {
                 // Placeholder for other screens

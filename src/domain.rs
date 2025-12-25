@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, str::FromStr};
 use chrono::{DateTime, Datelike, Duration, Local, Month, NaiveDate, TimeZone, Weekday};
 
 #[derive(Debug)]
@@ -187,7 +187,7 @@ pub struct YearMonth {
     pub month: Month,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Student {
     pub id: String,
     pub name: PersonalName,
@@ -205,25 +205,36 @@ pub struct Tutor {
     pub name: PersonalName,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PersonalName {
     pub first: String,
     pub last: String,
     pub other: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SessionData {
     pub day: Weekday,
     pub time: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TutorSubject {
     AdditionalMathematics,
     ExtendedMathematics,
     Statistics,
 }
+
+impl std::fmt::Display for TutorSubject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TutorSubject::Statistics => write!(f, "Statistics"),
+            TutorSubject::ExtendedMathematics => write!(f, "Extended Mathematics"),
+            TutorSubject::AdditionalMathematics => write!(f, "Additional Mathematics"),
+        }
+    }
+}
+
 
 impl TutorSubject {
     pub fn as_str(&self) -> &str {

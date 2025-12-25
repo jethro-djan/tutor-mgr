@@ -1,6 +1,7 @@
 use iced::widget::{row, text};
-use iced::{Element, Font};
 use iced::advanced::graphics::core::font;
+use iced::{Color, Theme, Element, Font, Background, Center, Border};
+use iced::widget::{svg, container, button, Button};
 
 pub fn page_header<'a, Message: 'a>(header_text: &'a str) -> Element<'a, Message> {
     let page_title_text = text(header_text)
@@ -11,4 +12,55 @@ pub fn page_header<'a, Message: 'a>(header_text: &'a str) -> Element<'a, Message
         .size(24);
     
     row![page_title_text].into()
+}
+
+pub fn ui_button<'a, Message: 'a>(
+    btn_text: &'a str,
+    btn_text_size: f32,
+
+    icon_svg_handle: svg::Handle,
+    icon_width: f32,
+    icon_height: f32,
+
+    cn_color_fn: impl Fn(&Theme) -> Color + 'a + Copy,
+    bg_color_fn: impl Fn(&Theme) -> Color + 'a,
+) -> Button<'a, Message> {
+    button(
+        container(
+            row![
+                svg::Svg::new(icon_svg_handle)
+                    .width(icon_width)
+                    .height(icon_height)
+                    .style(move |theme: &Theme, _status: svg::Status| {
+                        svg::Style {
+                            color: Some(cn_color_fn(theme)),
+                        }
+                    }),
+                text(btn_text)
+                    .size(btn_text_size)
+                    .font(Font {
+                        weight: font::Weight::Semibold,
+                        ..Default::default()
+                    })
+                    .style(move |theme: &Theme| {
+                        text::Style {
+                            color: Some(cn_color_fn(theme)),
+                        }
+                    }),
+            ]
+            .spacing(5)
+            .align_y(Center),
+        )
+        .align_x(Center),
+    )
+    .style(
+        move |theme: &Theme, _status: button::Status| button::Style {
+            background: Some(Background::Color(bg_color_fn(theme))),
+            border: Border {
+                radius: 10.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )
 }

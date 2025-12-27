@@ -228,7 +228,10 @@ pub fn update(state: &mut StudentManagerState, msg: Msg) -> Task<Msg> {
             Task::none()
         }
         Msg::AddStudent => {
-            let validated_data = validate_student(state.modal_state.modal_input.clone());
+            let validated_data = validate_student(
+                state.modal_state.modal_input.clone(),
+                &state.modal_state.time_slots
+            );
             
             if validated_data.is_valid() {
                 Task::perform(
@@ -463,6 +466,27 @@ fn create_schedule_section(state: &StudentManagerState) -> Element<'_, Msg> {
 
     for slot in &state.modal_state.time_slots {
         schedule_column = schedule_column.push(create_time_slot_row(slot, days.clone(), state));
+    }
+
+    // Add validation error message if present
+    if let Some(validated) = &state.modal_state.validation_errors {
+        if let ValidityTag::Problematic { message, .. } = &validated.time_slots {
+            schedule_column = schedule_column.push(
+                container(
+                    text(message)
+                        .size(13)
+                        .font(Font {
+                            weight: font::Weight::Normal,
+                            ..Default::default()
+                        })
+                        .style(|_theme: &Theme| text::Style {
+                            color: Some(Color::from_rgb(1.0, 0.0, 0.0)),
+                            ..Default::default()
+                        })
+                )
+                .padding([5, 0])
+            );
+        }
     }
 
     schedule_column.into()
@@ -869,6 +893,7 @@ pub struct ValidatedStudent {
     last: (String, ValidityTag),
     other: (String, ValidityTag),
     rate: (String, ValidityTag),
+    time_slots: ValidityTag,
 }
 
 impl ValidatedStudent {
@@ -877,15 +902,17 @@ impl ValidatedStudent {
             && matches!(self.last.1, ValidityTag::Safe)
             && matches!(self.other.1, ValidityTag::Safe)
             && matches!(self.rate.1, ValidityTag::Safe)
+            && matches!(self.time_slots, ValidityTag::Safe)
     }
 }
 
-fn validate_student(modal_input: ModalInput) -> ValidatedStudent {
+fn validate_student(modal_input: ModalInput, time_slots: &[TimeSlot]) -> ValidatedStudent {
     ValidatedStudent {
         first: validate_name(modal_input.first_name),
         last: validate_name(modal_input.last_name),
         other: validate_optional_field(modal_input.other_names, 100),
         rate: validate_number(modal_input.pay_rate),
+        time_slots: validate_time_slots(time_slots),
     }
 }
 
@@ -995,6 +1022,21 @@ fn validate_optional_field(input: String, max: usize) -> (String, ValidityTag) {
     }
 
     (input, ValidityTag::Safe)
+}
+
+fn validate_time_slots(time_slots: &[TimeSlot]) -> ValidityTag {
+    let has_complete_slot = time_slots.iter().any(|slot| {
+        slot.selected_day.is_some() && slot.selected_time.is_some()
+    });
+
+    if has_complete_slot {
+        ValidityTag::Safe
+    } else {
+        ValidityTag::Problematic {
+            error_type: ValidityError::Empty,
+            message: "Please select at least one complete time slot (day and time)".to_string(),
+        }
+    }
 }
 
 async fn add_student(_modal_input: ModalInput) -> Result<(), StudentError> {

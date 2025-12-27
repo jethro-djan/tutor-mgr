@@ -1,7 +1,12 @@
-use std::{collections::BTreeMap, str::FromStr};
 use chrono::{DateTime, Datelike, Duration, Local, Month, NaiveDate, TimeZone, Weekday};
+use common_macros::hash_map;
+use std::collections::{BTreeMap, HashMap};
 
-#[derive(Debug)]
+pub const WEEKDAYS_TIMES: &[&str] = &["05:00 PM"];
+pub const WEEKEND_SAT_TIMES: &[&str] = &["11:00 AM", "2:00 PM", "5:00 PM"];
+pub const WEEKEND_SUN_TIMES: &[&str] = &["10:00 AM", "2:00 PM"];
+
+#[derive(Debug, Clone)]
 pub struct Domain {
     pub tutor: Tutor,
     pub students: Vec<Student>,
@@ -9,7 +14,7 @@ pub struct Domain {
 }
 
 impl Domain {
-    pub fn load_state_from_db() -> Self {
+    pub async fn load_state_from_db() -> Self {
         mock_domain()
     }
 
@@ -64,7 +69,6 @@ impl Domain {
             })
             .collect();
 
-        println!("{:#?}", income_data);
         income_data
     }
 
@@ -199,10 +203,13 @@ pub struct Student {
     pub tution_start_date: DateTime<Local>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tutor {
     pub id: String,
     pub name: PersonalName,
+    pub subjects: Vec<TutorSubject>,
+    pub tutoring_days: Vec<Weekday>,
+    pub available_times: HashMap<Weekday, Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -218,11 +225,19 @@ pub struct SessionData {
     pub time: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TutorSubject {
     AdditionalMathematics,
     ExtendedMathematics,
     Statistics,
+}
+
+impl TutorSubject {
+    pub const ALL: [TutorSubject; 3] = [
+        TutorSubject::ExtendedMathematics,
+        TutorSubject::AdditionalMathematics,
+        TutorSubject::Statistics,
+    ];
 }
 
 impl std::fmt::Display for TutorSubject {
@@ -235,16 +250,15 @@ impl std::fmt::Display for TutorSubject {
     }
 }
 
-
-impl TutorSubject {
-    pub fn as_str(&self) -> &str {
-        match self {
-            TutorSubject::AdditionalMathematics => "Additional Mathematics",
-            TutorSubject::ExtendedMathematics => "Extended Mathematics",
-            TutorSubject::Statistics => "Statistics",
-        }
-    }
-}
+// impl TutorSubject {
+//     pub fn as_str(&self) -> &str {
+//         match self {
+//             TutorSubject::AdditionalMathematics => "Additional Mathematics",
+//             TutorSubject::ExtendedMathematics => "Extended Mathematics",
+//             TutorSubject::Statistics => "Statistics",
+//         }
+//     }
+// }
 
 #[derive(Clone, Debug)]
 pub struct PaymentData {
@@ -418,7 +432,6 @@ pub fn compute_trend(previous: f32, current: f32) -> NumberTrend {
     }
 }
 
-
 #[derive(Clone)]
 pub enum NumberTrend {
     NoData,
@@ -453,12 +466,34 @@ pub struct IncomeData {
 fn mock_domain() -> Domain {
     Domain {
         tutor: Tutor {
-            id: String::from("tutor1"),
+            id: "tutor1".to_owned(),
             name: PersonalName {
                 first: String::from("Andy"),
                 last: String::from("Murray"),
                 other: None::<String>,
             },
+            subjects: vec![
+                TutorSubject::ExtendedMathematics,
+                TutorSubject::AdditionalMathematics,
+                TutorSubject::Statistics,
+            ],
+            tutoring_days: vec![
+                Weekday::Sun,
+                Weekday::Tue,
+                Weekday::Wed,
+                Weekday::Thu,
+                Weekday::Sat,
+            ],
+            available_times: hash_map! {
+                Weekday::Sun => WEEKEND_SUN_TIMES,
+                Weekday::Tue => WEEKDAYS_TIMES,
+                Weekday::Wed => WEEKDAYS_TIMES,
+                Weekday::Thu => WEEKDAYS_TIMES,
+                Weekday::Sat => WEEKEND_SAT_TIMES,
+            }
+            .iter()
+            .map(|(day, times)| (*day, times.iter().map(|s| s.to_string()).collect()))
+            .collect(),
         },
         students: mock_student_data(),
         // monthly_summaries: mock_monthly_summaries(),

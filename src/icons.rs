@@ -15,6 +15,8 @@ static LOGO: OnceLock<svg::Handle> = OnceLock::new();
 static LOGO_EXPANDED: OnceLock<svg::Handle> = OnceLock::new();
 static SETTINGS: OnceLock<svg::Handle> = OnceLock::new();
 static LOGOUT: OnceLock<svg::Handle> = OnceLock::new();
+static CANCEL: OnceLock<svg::Handle> = OnceLock::new();
+static DELETE: OnceLock<svg::Handle> = OnceLock::new();
 
 fn icon_path(name: &str) -> String {
     format!("{}/resources/icons/{}", env!("CARGO_MANIFEST_DIR"), name)
@@ -140,5 +142,17 @@ pub fn logout() -> svg::Handle {
                 "logout_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg",
             ))
         })
+        .clone()
+}
+
+pub fn cancel() -> svg::Handle {
+    CANCEL
+        .get_or_init(|| svg::Handle::from_path(icon_path("cancel.svg")))
+        .clone()
+}
+
+pub fn delete() -> svg::Handle {
+    DELETE
+        .get_or_init(|| svg::Handle::from_path(icon_path("delete.svg")))
         .clone()
 }

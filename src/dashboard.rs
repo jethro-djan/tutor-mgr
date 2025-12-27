@@ -1,34 +1,46 @@
-use iced::{
-    Task, Element, Point, Rectangle, Color, Theme, Renderer, Size, Center, Font,
-    Length, Background, Border, Shadow, Vector,
-};
+use chrono::{Datelike, Local};
 use iced::advanced::graphics::core::font;
-use iced::widget::{Canvas, Column, column, container, grid, text, Grid, mouse_area, svg, row};
+use iced::alignment::Vertical;
 use iced::widget::canvas::{self, Frame, Path, Stroke, Text};
-use chrono::{Local, Datelike};
-use std::rc::Rc;
+use iced::widget::{Canvas, Column, Grid, column, container, grid, mouse_area, row, svg, text};
+use iced::{
+    Background, Border, Center, Color, Element, Font, Length, Point, Rectangle, Renderer, Shadow,
+    Size, Task, Theme, Vector,
+};
 
 use crate::domain::*;
 use crate::icons;
-use crate::ui_components::page_header;
+use crate::ui_components::{global_content_container, page_header};
 
 pub struct DashboardState {
-    pub hovered_dashboard_card: Option<usize>,
-    pub barchart: GroupedBarChart,
-    pub linechart: LineChart,
-    pub dashboard_summary: DashboardSummary,
+    hovered_dashboard_card: Option<usize>,
+    barchart: GroupedBarChart,
+    linechart: LineChart,
+    dashboard_summary: DashboardSummary,
+
+    is_ready: bool,
 }
 
 impl DashboardState {
-    pub fn new(domain: &Rc<Domain>) -> Self {
+    pub fn attach_domain(&mut self, domain: &Domain) {
         let income_data = domain.compute_income_data();
         let attendance_data = domain.compute_attendance_data();
 
-        Self { 
-            hovered_dashboard_card: None, 
-            barchart: GroupedBarChart::new(income_data), 
-            linechart: LineChart::new(attendance_data),
-            dashboard_summary: DashboardSummary::compute_from_domain_state(domain),
+        self.barchart = GroupedBarChart::new(income_data);
+        self.linechart = LineChart::new(attendance_data);
+        self.dashboard_summary = DashboardSummary::compute_from_domain_state(domain);
+
+        self.is_ready = true;
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            hovered_dashboard_card: None,
+            barchart: GroupedBarChart::empty(),
+            linechart: LineChart::empty(),
+            dashboard_summary: DashboardSummary::empty(),
+
+            is_ready: false,
         }
     }
 }
@@ -47,7 +59,7 @@ pub fn update(state: &mut DashboardState, msg: Msg) -> Task<Msg> {
     }
 }
 
-pub fn view(state: &DashboardState) -> Element<Msg> {
+pub fn view<'a>(state: &'a DashboardState) -> Element<'a, Msg> {
     view_dashboard(state)
 }
 
@@ -59,6 +71,24 @@ struct DashboardSummary {
 }
 
 impl DashboardSummary {
+    fn empty() -> Self {
+        Self {
+            attendance: AttendanceSummary {
+                total_scheduled_sessions: 0,
+                total_actual_sessions: 0,
+            },
+            actual_revenue: ActualRevenueSummary {
+                amount: 0.0f32,
+                trend: NumberTrend::NoData,
+            },
+            potential_revenue: PotentialRevenueSummary { amount: 0.0f32 },
+            lost_revenue: LostRevenueSummary {
+                amount: 0.0f32,
+                trend: NumberTrend::NoData,
+            },
+        }
+    }
+
     fn compute_from_domain_state(domain: &Domain) -> Self {
         let today = Local::now().naive_local().date();
         let current_year = today.year();
@@ -79,7 +109,6 @@ impl DashboardSummary {
                 compute_monthly_scheduled_sessions(student, current_month, current_year) as usize
             })
             .sum();
-        println!("total_scheduled_sessions: {}", total_scheduled_sessions);
 
         let potential_earnings = domain
             .students
@@ -175,6 +204,13 @@ impl GroupedBarChart {
             cache: canvas::Cache::new(),
         }
     }
+
+    fn empty() -> Self {
+        Self {
+            data: Vec::new(),
+            cache: canvas::Cache::new(),
+        }
+    }
 }
 
 impl<Msg> canvas::Program<Msg> for GroupedBarChart {
@@ -189,6 +225,19 @@ impl<Msg> canvas::Program<Msg> for GroupedBarChart {
         _cursor: iced::advanced::mouse::Cursor,
     ) -> Vec<canvas::Geometry> {
         let geometry = self.cache.draw(renderer, bounds.size(), |frame| {
+            if self.data.is_empty() {
+                frame.fill_text(Text {
+                    content: "No attendance data yet".into(),
+                    position: Point::new(frame.width() / 2.0, frame.height() / 2.0),
+                    color: Color::from_rgb(0.5, 0.5, 0.5),
+                    size: 14.0.into(),
+                    align_x: iced::advanced::text::Alignment::Center,
+                    align_y: iced::alignment::Vertical::Center,
+                    ..Default::default()
+                });
+                return;
+            }
+
             let max_bar = self
                 .data
                 .iter()
@@ -263,6 +312,13 @@ impl LineChart {
             cache: canvas::Cache::new(),
         }
     }
+
+    fn empty() -> Self {
+        Self {
+            data: Vec::new(),
+            cache: canvas::Cache::new(),
+        }
+    }
 }
 
 impl<Msg> canvas::Program<Msg> for LineChart {
@@ -277,6 +333,19 @@ impl<Msg> canvas::Program<Msg> for LineChart {
         _cursor: iced::advanced::mouse::Cursor,
     ) -> Vec<canvas::Geometry> {
         let geometry = self.cache.draw(renderer, bounds.size(), |frame| {
+            if self.data.is_empty() {
+                frame.fill_text(Text {
+                    content: "No income data yet".into(),
+                    position: Point::new(frame.width() / 2.0, frame.height() / 2.0),
+                    color: Color::from_rgb(0.5, 0.5, 0.5),
+                    size: 14.0.into(),
+                    align_x: iced::advanced::text::Alignment::Center,
+                    align_y: iced::alignment::Vertical::Center,
+                    ..Default::default()
+                });
+                return;
+            }
+
             let max_bar = self.data.iter().map(|dp| dp.attended_days).max().unwrap() as f32;
             let padding = 20.0;
             let chart_width = frame.width() - padding * 2.0;
@@ -369,7 +438,6 @@ fn draw_axes(frame: &mut Frame, padding: f32, width: f32, height: f32) {
             .with_width(2.0),
     );
 }
-
 
 fn view_dashboard(state: &DashboardState) -> Element<'_, Msg> {
     struct CardInfo {
@@ -474,24 +542,26 @@ fn view_dashboard(state: &DashboardState) -> Element<'_, Msg> {
     let graphs = Grid::new()
         .push(attendance_trend_chart)
         .push(potential_vs_actual_chart)
+        .columns(3)
         .height(Length::Fixed(300.0))
-        .width(1200)
+        .width(1300)
         .spacing(16);
 
     let graph_section = column![graphs_section_title, graphs,].spacing(12);
 
-    container(
+    let content = global_content_container(
         Column::new()
             .spacing(40)
-            .push(page_header("Dashboard"))
             .push(summary_section)
             .push(graph_section),
     )
     .width(Length::Fill)
-    .height(Length::Fill)
-    .into()
-}
+    .height(Length::Fill);
 
+    let content_with_header = column![page_header("Dashboard"), content,];
+
+    content_with_header.into()
+}
 
 fn view_trend_chart(state: &DashboardState) -> Element<'_, Msg> {
     let chart = Canvas::new(&state.linechart)
@@ -516,7 +586,6 @@ fn view_trend_chart(state: &DashboardState) -> Element<'_, Msg> {
     .into()
 }
 
-
 fn view_grouped_chart(state: &DashboardState) -> Element<'_, Msg> {
     let chart = Canvas::new(&state.barchart)
         .width(Length::Fill)
@@ -540,7 +609,6 @@ fn view_grouped_chart(state: &DashboardState) -> Element<'_, Msg> {
     })
     .into()
 }
-
 
 #[derive(Clone, Copy)]
 enum DashboardCardVariant {
@@ -608,8 +676,7 @@ fn metric_card<'a>(
         .into()
 }
 
-
-pub fn card_style_with_variant(
+fn card_style_with_variant(
     theme: &Theme,
     is_hovered: bool,
     variant: DashboardCardVariant,

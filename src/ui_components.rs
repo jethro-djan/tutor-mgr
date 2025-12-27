@@ -1,17 +1,17 @@
-use iced::widget::{row, text};
 use iced::advanced::graphics::core::font;
-use iced::{Color, Theme, Element, Font, Background, Center, Border};
-use iced::widget::{svg, container, button, Button};
+use iced::widget::{Button, Container, button, container, svg};
+use iced::widget::{Row, row, text};
+use iced::{Background, Border, Center, Color, Element, Font, Theme};
 
-pub fn page_header<'a, Message: 'a>(header_text: &'a str) -> Element<'a, Message> {
+pub fn page_header<'a, Message: 'a>(header_text: &'a str) -> Row<'a, Message> {
     let page_title_text = text(header_text)
         .font(Font {
             weight: font::Weight::Bold,
             ..Default::default()
         })
         .size(24);
-    
-    row![page_title_text].into()
+
+    row![page_title_text].padding([35, 30])
 }
 
 pub fn ui_button<'a, Message: 'a>(
@@ -63,4 +63,10 @@ pub fn ui_button<'a, Message: 'a>(
             ..Default::default()
         },
     )
+}
+
+pub fn global_content_container<'a, Message: 'a>(
+    content: impl Into<Element<'a, Message>>,
+) -> Container<'a, Message> {
+    container(content).padding([0, 30])
 }

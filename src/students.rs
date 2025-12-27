@@ -1,113 +1,260 @@
-use iced::{
-    Element, Task, Length, Border, 
-    Theme, Color, Shadow, Alignment, Vector, Font, Center,
-};
-use iced::mouse::Interaction;
+use chrono::{Datelike, Local, Weekday};
 use iced::advanced::graphics::core::font;
+use iced::mouse::Interaction;
+use iced::widget::PickList;
 use iced::widget::{
-    Column, Row, button, column, container, mouse_area,
-    operation::focus_next, row, stack, svg, text, text_input,
+    Column, Container, Row, Stack, button, center, column, container, mouse_area, opaque,
+    operation::focus_next, pick_list, row, space, stack, svg, text, text_input,
 };
-use chrono::{Local, Datelike};
+use iced::{
+    Alignment, Background, Border, Center, Color, Element, Font, Length, Padding, Shadow, Task,
+    Theme, Vector,
+};
 use std::rc::Rc;
 
-use crate::ui_components::{ui_button, page_header};
-use crate::icons;
 use crate::domain::{
-    compute_monthly_completed_sessions, compute_monthly_sum,
-    get_next_session, Domain, Student,
+    Domain, SessionData, Student, Tutor, TutorSubject, compute_monthly_completed_sessions,
+    compute_monthly_sum, get_next_session,
 };
+use crate::icons;
+use crate::ui_components::{global_content_container, page_header, ui_button};
+
+#[derive(Clone, Debug)]
+pub struct TimeSlot {
+    pub id: usize,
+    pub selected_day: Option<DaySelection>,
+    pub selected_time: Option<TimeSelection>,
+}
 
 pub struct StudentManagerState {
     pub search_query: String,
     pub show_add_student_modal: bool,
     pub hovered_student_card: Option<usize>,
-    // pub rendered_students: Option<RenderedStudentList>,
-    pub students: Vec<Student>,
+    pub tutor: Option<Tutor>,
+    pub students: Option<Vec<Student>>,
 
     // Modal State
-    // pub student_info: StudentInfo,
+    pub modal_state: ModalState,
+}
+
+pub struct ModalState {
+    pub modal_input: ModalInput,
+    pub selected_subject: Option<TutorSubject>,
+
+    pub time_slots: Vec<TimeSlot>,
+    pub next_slot_id: usize,
+}
+
+impl ModalState {
+    pub fn clear(&mut self) {
+        self.modal_input.first_name = String::new();
+        self.modal_input.last_name = String::new();
+        self.modal_input.other_names = String::new();
+        self.modal_input.subject = String::new();
+        self.modal_input.pay_rate = String::new();
+        self.modal_input.weekly_schedule = WeeklySchedule(Vec::new());
+        self.selected_subject = None;
+        self.time_slots = vec![TimeSlot {
+            id: 0,
+            selected_day: None,
+            selected_time: None,
+        }];
+        self.next_slot_id = 1;
+    }
 }
 
 impl StudentManagerState {
-    pub fn new(domain: &Rc<Domain>) -> Self {
+    pub fn attach_domain(&mut self, domain: Rc<Domain>) {
+        self.search_query = String::new();
+        self.show_add_student_modal = false;
+        self.hovered_student_card = None;
+        self.tutor = Some(domain.tutor.clone());
+        self.students = Some(domain.students.clone());
+        self.modal_state.modal_input = ModalInput::default();
+        self.modal_state.selected_subject = None;
+
+        self.modal_state.time_slots = vec![TimeSlot {
+            id: 0,
+            selected_day: None,
+            selected_time: None,
+        }];
+        self.modal_state.next_slot_id = 1;
+    }
+
+    pub fn empty() -> Self {
         Self {
             search_query: String::new(),
             show_add_student_modal: false,
             hovered_student_card: None,
-            // rendered_students: Some(RenderedStudentList::render_student_list(students)),
-            students: domain.students.clone()
-
-            // student_info: StudentInfo::default(),
+            tutor: None,
+            students: None,
+            modal_state: ModalState {
+                modal_input: ModalInput::default(),
+                selected_subject: None,
+                time_slots: vec![TimeSlot {
+                    id: 0,
+                    selected_day: None,
+                    selected_time: None,
+                }],
+                next_slot_id: 1,
+            },
         }
     }
 }
 
-// impl Default for StudentManagerState {
-//     fn default() -> Self {
-//         Self {
-//             search_query: String::new(),
-//             show_add_student_modal: false,
-//             hovered_student_card: None,
-//             student_info: StudentInfo::default(),
-//         }
-//     }
-// }
-
 #[derive(Clone, Debug)]
 pub enum Msg {
+    StudentCardHovered(Option<usize>),
+
     ShowAddStudentModal,
     CloseAddStudentModal,
-    StudentCardHovered(Option<usize>),
+    SubjectSelected(TutorSubject),
+    FirstNameInputChanged(String),
+    LastNameInputChanged(String),
+    OtherNamesInputChanged(String),
+    RateInputChanged(String),
+
+    AddTimeSlot,
+    RemoveTimeSlot(usize),
+
+    TutoringDaySelected(usize, DaySelection),
+    TutoringTimeSelected(usize, TimeSelection),
 }
 
-// #[derive(Default)]
-// pub struct StudentInfo {
-//     pub first_name: String,
-//     pub last_name: String,
-//     pub other_names: Some(String),
-// 
-//     pub subject: String,
-// 
-//     pub pay_rate: f32,
-// }
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum TimeSelection {
+    // None,
+    Time(String),
+}
 
-// pub struct RenderedStudentList(pub Vec<StudentInfo>);
-// 
-// impl RenderedStudentList {
-//     pub fn render_student_list(
-//         students: Vec<Student>
-//     ) -> Self {
-//         let rendered_students = students
-//             .into_iter()
-//             .map(|std| StudentInfo {
-//                 first_name: std.name.first,
-//                 last_name: std.name.last,
-//                 other_names: Some(std.name.other),
-// 
-//                 subject: std.subject.to_string(),
-// 
-//                 pay_rate: std.payment_data.amount,
-//             })
-//             .collect();
-// 
-//         RenderedStudentList(rendered_students)
-//     }
-// }
+impl std::fmt::Display for TimeSelection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            // TimeSelection::None => write!(f, " "),
+            TimeSelection::Time(time) => write!(f, "{}", time),
+        }
+    }
+}
 
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum DaySelection {
+    // None,
+    Day(Weekday),
+}
+
+impl std::fmt::Display for DaySelection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            // DaySelection::None => write!(f, " "),
+            DaySelection::Day(day) => write!(f, "{}", day),
+        }
+    }
+}
+
+#[derive(Default, Debug)]
+
+pub struct WeeklySchedule(pub Vec<SessionData>);
+
+#[derive(Default, Debug)]
+pub struct ModalInput {
+    pub first_name: String,
+    pub last_name: String,
+    pub other_names: String,
+
+    pub subject: String,
+
+    pub pay_rate: String,
+
+    pub weekly_schedule: WeeklySchedule,
+}
 
 pub fn update(state: &mut StudentManagerState, msg: Msg) -> Task<Msg> {
     match msg {
         Msg::ShowAddStudentModal => {
             state.show_add_student_modal = true;
             focus_next()
-        },
+        }
         Msg::CloseAddStudentModal => {
             state.show_add_student_modal = false;
+            state.modal_state.clear();
             Task::none()
-        },
+        }
+        Msg::SubjectSelected(subject) => {
+            state.modal_state.selected_subject = Some(subject);
+            Task::none()
+        }
         Msg::StudentCardHovered(card_idx_opt) => {
             state.hovered_student_card = card_idx_opt;
+            Task::none()
+        }
+
+        Msg::AddTimeSlot => {
+            if state.modal_state.time_slots.len() < 3 {
+                state.modal_state.time_slots.push(TimeSlot {
+                    id: state.modal_state.next_slot_id,
+                    selected_day: None,
+                    selected_time: None,
+                });
+            }
+            state.modal_state.next_slot_id += 1;
+            Task::none()
+        }
+
+        Msg::RemoveTimeSlot(id) => {
+            state.modal_state.time_slots.retain(|slot| slot.id != id);
+            if state.modal_state.time_slots.is_empty() {
+                state.modal_state.time_slots.push(TimeSlot {
+                    id: state.modal_state.next_slot_id,
+                    selected_day: None,
+                    selected_time: None,
+                });
+                state.modal_state.next_slot_id += 1;
+            }
+            Task::none()
+        }
+
+        Msg::TutoringDaySelected(slot_id, day) => {
+            if let Some(slot) = state
+                .modal_state
+                .time_slots
+                .iter_mut()
+                .find(|s| s.id == slot_id)
+            {
+                slot.selected_day = Some(day);
+                slot.selected_time = None;
+            }
+            Task::none()
+        }
+
+        Msg::TutoringTimeSelected(slot_id, time) => {
+            if let Some(slot) = state
+                .modal_state
+                .time_slots
+                .iter_mut()
+                .find(|s| s.id == slot_id)
+            {
+                slot.selected_time = Some(time);
+            }
+            Task::none()
+        }
+
+        Msg::FirstNameInputChanged(name) => {
+            state.modal_state.modal_input.first_name = name;
+            Task::none()
+        }
+
+        Msg::LastNameInputChanged(name) => {
+            state.modal_state.modal_input.last_name = name;
+            Task::none()
+        }
+
+        Msg::OtherNamesInputChanged(name) => {
+            state.modal_state.modal_input.other_names = name;
+            Task::none()
+        }
+
+        Msg::RateInputChanged(amount) => {
+            state.modal_state.modal_input.pay_rate = amount;
             Task::none()
         }
     }
@@ -117,11 +264,37 @@ pub fn view(state: &StudentManagerState) -> Element<'_, Msg> {
     view_student_manager(state)
 }
 
-
 fn view_student_manager(state: &StudentManagerState) -> Element<'_, Msg> {
     let search_bar = view_search_bar("Search Students", &state.search_query);
-    let add_button =
-        button(svg(icons::plus()).width(25).height(25)).on_press(Msg::ShowAddStudentModal);
+    let add_button = button(
+        row![
+            svg(icons::plus())
+                .width(22)
+                .height(22)
+                .style(|_theme: &Theme, _status| {
+                    svg::Style {
+                        color: Some(Color::from_rgba(0.0, 0.2, 0.9, 0.7)),
+                    }
+                }),
+            text("Add Student")
+                .font(Font {
+                    weight: font::Weight::Medium,
+                    ..Default::default()
+                })
+                .style(|_theme: &Theme| {
+                    text::Style {
+                        color: Some(Color::from_rgba(0.0, 0.2, 0.9, 0.7)),
+                    }
+                }),
+        ]
+        .align_y(iced::Center)
+        .spacing(5),
+    )
+    .style(|_theme, _status| button::Style {
+        background: None,
+        ..Default::default()
+    })
+    .on_press(Msg::ShowAddStudentModal);
     let action_bar = row![search_bar, add_button].spacing(100);
     let card_container = container(
         Row::new()
@@ -129,31 +302,274 @@ fn view_student_manager(state: &StudentManagerState) -> Element<'_, Msg> {
             .spacing(30),
     );
 
-    let main_container = container(
-        column![
-            page_header("Student Manager"),
-            action_bar,
-            card_container,
-        ]
-        .spacing(30),
-    )
-    .width(Length::Fill)
-    .height(Length::Fill);
+    let header = page_header("Student Manager");
+
+    let main_area_content =
+        global_content_container(column![action_bar, card_container,].spacing(30))
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+    let main_container = column![header, main_area_content,];
 
     if state.show_add_student_modal {
-        modal(main_container.into(), || {
-            container(column![
-                row![text!("Modal open")],
-                button(text!("Close modal")).on_press(Msg::CloseAddStudentModal),
-            ])
-            .into()
-        })
-        .into()
+        modal(main_container, modal_content_container(state)).into()
     } else {
         main_container.into()
     }
 }
 
+fn modal_content_container(state: &StudentManagerState) -> Element<'_, Msg> {
+    let basic_info_section = column![
+        container(text("Basic Information").size(18).font(Font {
+            weight: font::Weight::Semibold,
+            ..Default::default()
+        }))
+        .padding([20, 0]),
+        column![
+            row![
+                column![
+                    text("First Name").size(13).font(Font {
+                        weight: font::Weight::Medium,
+                        ..Default::default()
+                    }),
+                    text_input("John", &state.modal_state.modal_input.first_name)
+                        .on_input(Msg::FirstNameInputChanged),
+                ]
+                .spacing(5),
+                column![
+                    text("Last Name").size(13).font(Font {
+                        weight: font::Weight::Medium,
+                        ..Default::default()
+                    }),
+                    text_input("Smith", &state.modal_state.modal_input.last_name)
+                        .on_input(Msg::LastNameInputChanged),
+                ]
+                .spacing(5),
+                column![
+                    text("Other Names").size(13).font(Font {
+                        weight: font::Weight::Medium,
+                        ..Default::default()
+                    }),
+                    text_input("", &state.modal_state.modal_input.other_names)
+                        .on_input(Msg::OtherNamesInputChanged),
+                ]
+                .spacing(5),
+            ]
+            .spacing(20),
+            column![
+                text("Subject").size(13).font(Font {
+                    weight: font::Weight::Medium,
+                    ..Default::default()
+                }),
+                pick_list(
+                    state.tutor.as_ref().unwrap().subjects.clone(),
+                    state.modal_state.selected_subject,
+                    Msg::SubjectSelected
+                )
+                .placeholder("Pick tutor subject")
+                .menu_height(100),
+                // space().height(80),
+            ]
+            .padding([10, 0])
+            .spacing(5),
+            column![
+                text("Rate per session (GHS)").size(13).font(Font {
+                    weight: font::Weight::Medium,
+                    ..Default::default()
+                }),
+                text_input("e.g., 150", &state.modal_state.modal_input.pay_rate)
+                    .on_input(Msg::RateInputChanged),
+            ]
+            .spacing(5),
+        ]
+        .spacing(20),
+    ];
+
+    let days: Vec<DaySelection> = state
+        .tutor
+        .as_ref()
+        .unwrap()
+        .tutoring_days
+        .clone()
+        .into_iter()
+        .map(DaySelection::Day)
+        .collect();
+
+    let schedule_section = column![
+        container(row![
+            text("Weekly Schedule").size(18).font(Font {
+                weight: font::Weight::Semibold,
+                ..Default::default()
+            }),
+            space().width(Length::Fill),
+            mouse_area(
+                ui_button(
+                    "Add Time Slot",
+                    12.0,
+                    icons::plus(),
+                    16.0,
+                    18.0,
+                    |_| Color::from_rgba(0.0, 0.2, 0.9, 0.7),
+                    |theme| theme.extended_palette().background.weak.color,
+                )
+                .padding(5)
+                .on_press(Msg::AddTimeSlot)
+            )
+            .interaction(Interaction::Pointer),
+        ])
+        .padding([20, 0]),
+    ]
+    .extend(state.modal_state.time_slots.iter().map(|slot| {
+        let slot_id = slot.id;
+        let can_remove = state.modal_state.time_slots.len() > 1;
+
+        row![
+            pick_list(days.clone(), slot.selected_day.clone(), move |day| {
+                Msg::TutoringDaySelected(slot_id, day)
+            },)
+            .placeholder("Select Day")
+            .width(Length::FillPortion(1))
+            .menu_height(155),
+            space().width(Length::Fixed(20.0)),
+            {
+                let time_picker: Element<Msg> =
+                    if let Some(DaySelection::Day(day)) = slot.selected_day {
+                        let times: Vec<TimeSelection> = state
+                            .tutor
+                            .as_ref()
+                            .unwrap()
+                            .available_times
+                            .get(&day)
+                            .cloned()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(TimeSelection::Time)
+                            .collect();
+
+                        pick_list(times.clone(), slot.selected_time.clone(), move |time| {
+                            Msg::TutoringTimeSelected(slot_id, time)
+                        })
+                        .placeholder("Select Time")
+                        .width(Length::FillPortion(1))
+                        .menu_height((times.len() as f32) * 35.0)
+                        .into()
+                    } else {
+                        pick_list(
+                            Vec::<TimeSelection>::new(),
+                            slot.selected_time.clone(),
+                            move |time| Msg::TutoringTimeSelected(slot_id, time),
+                        )
+                        .placeholder("--:-- --")
+                        .width(Length::FillPortion(1))
+                        .menu_height(0)
+                        .into()
+                    };
+
+                time_picker
+            },
+            space().width(Length::Fixed(10.0)),
+            {
+                let remove_button: Element<Msg> = if can_remove {
+                    mouse_area(
+                        button(svg::Svg::new(icons::delete()).style(|_theme, _status| {
+                            svg::Style {
+                                color: Some(Color::from_rgba(1.0, 0.0, 0.2, 1.0)),
+                            }
+                        }))
+                        .padding(5)
+                        .width(Length::Fixed(30.0))
+                        .style(|theme: &Theme, _status| {
+                            let palette = theme.extended_palette();
+                            button::Style {
+                                background: Some(Background::Color(palette.background.weak.color)),
+                                ..Default::default()
+                            }
+                        })
+                        .on_press(Msg::RemoveTimeSlot(slot_id)),
+                    )
+                    .interaction(Interaction::Pointer)
+                    .into()
+                } else {
+                    space().width(Length::Fixed(30.0)).into()
+                };
+
+                remove_button
+            }
+        ]
+        .spacing(10)
+        .padding([10, 0])
+        .into()
+    }))
+    .spacing(10);
+
+    let action_section = container(
+        row![
+            mouse_area(
+                ui_button(
+                    "Cancel",
+                    12.0,
+                    icons::cancel(),
+                    16.0,
+                    18.0,
+                    |theme| theme.extended_palette().background.weak.text,
+                    |theme| theme.extended_palette().background.weak.color,
+                )
+                .style(|_theme, _status| {
+                    button::Style {
+                        border: Border {
+                            color: Color::BLACK,
+                            width: 1.0,
+                            radius: 10.0.into(),
+                        },
+                        ..Default::default()
+                    }
+                })
+                .padding(10)
+                .width(Length::FillPortion(1))
+                .height(Length::Fixed(40.0))
+                .on_press(Msg::CloseAddStudentModal)
+            )
+            .interaction(Interaction::Pointer),
+            mouse_area(
+                ui_button(
+                    "Add Student",
+                    12.0,
+                    icons::plus(),
+                    16.0,
+                    18.0,
+                    |_| Color::WHITE,
+                    |_| Color::BLACK,
+                )
+                .padding(10)
+                .width(Length::FillPortion(1))
+                .height(Length::Fixed(40.0))
+                .on_press(Msg::CloseAddStudentModal),
+            )
+            .interaction(Interaction::Pointer),
+        ]
+        .spacing(10),
+    )
+    .height(Length::Fixed(100.0))
+    .width(Length::Fill)
+    .padding(Padding {
+        top: 0.0,
+        left: 0.0,
+        right: 0.0,
+        bottom: 20.0,
+    })
+    .align_y(Alignment::End);
+
+    container(column![
+        page_header("Add New Student").padding([10, 0]),
+        basic_info_section,
+        schedule_section,
+        action_section,
+    ])
+    .width(600)
+    .padding([10, 30])
+    .style(container::rounded_box)
+    .into()
+}
 
 fn view_search_bar<'a>(
     placeholder_text: &'a str,
@@ -163,12 +579,21 @@ fn view_search_bar<'a>(
 }
 
 fn view_student_manager_card_list(state: &StudentManagerState) -> Vec<Element<'_, Msg>> {
+    match &state.students {
+        None => loading_student_cards(),
+        Some(students) => render_student_cards(state, students),
+    }
+}
+
+fn render_student_cards<'a>(
+    state: &'a StudentManagerState,
+    students: &'a Vec<Student>,
+) -> Vec<Element<'a, Msg>> {
     let today = Local::now().naive_local().date();
     let current_year = today.year();
     let current_month = today.month();
 
-    let card_list = state
-        .students
+    let card_list = students
         .iter()
         .enumerate()
         .map(|(index, student)| {
@@ -204,7 +629,7 @@ fn view_student_manager_card_list(state: &StudentManagerState) -> Vec<Element<'_
                         .size(20)
                     }),
                     container(
-                        text(student.subject.as_str())
+                        text(student.subject.to_string())
                             .font(Font {
                                 weight: font::Weight::Light,
                                 ..Default::default()
@@ -237,12 +662,8 @@ fn view_student_manager_card_list(state: &StudentManagerState) -> Vec<Element<'_
                                 .size(12),
                             Column::new()
                                 .extend(student.tabled_sessions.iter().map(|session| {
-                                    text(format!(
-                                        "{} {}",
-                                        session.day.to_string(),
-                                        session.time
-                                    ))
-                                    .into()
+                                    text(format!("{} {}", session.day.to_string(), session.time))
+                                        .into()
                                 }))
                                 .spacing(2),
                         ]
@@ -411,29 +832,31 @@ fn view_student_manager_card_list(state: &StudentManagerState) -> Vec<Element<'_
     card_list
 }
 
-fn modal<'a, Message: 'a>(
-    bg_content: Element<'a, Message>,
-    modal_content: impl FnOnce() -> Element<'a, Message>,
-) -> Element<'a, Message> {
-    let modal_box = container(modal_content())
-        .width(Length::Fill)
-        .height(Length::Fill);
+fn loading_student_cards<'a>() -> Vec<Element<'a, Msg>> {
+    vec![container(text!("Loading students…")).padding(20).into()]
+}
 
-    let overlay = container(modal_box)
-        .width(Length::Fixed(400.0))
-        .height(Length::Fixed(500.0))
-        .style(|_theme: &Theme| container::Style {
-            background: Some(iced::Background::Color(iced::Color::from_rgba(
-                0.0, 0.0, 0.0, 0.5,
-            ))),
-            ..Default::default()
-        });
-
-    let modal = container(overlay)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .align_x(Center)
-        .align_y(Center);
-
-    stack![bg_content, modal].into()
+fn modal<'a, Message>(
+    base: impl Into<Element<'a, Message>>,
+    content: impl Into<Element<'a, Message>>,
+) -> Stack<'a, Message>
+where
+    Message: Clone + 'a,
+{
+    stack![
+        base.into(),
+        opaque(center(opaque(content)).style(|_theme| {
+            container::Style {
+                background: Some(
+                    Color {
+                        a: 0.8,
+                        ..Color::BLACK
+                    }
+                    .into(),
+                ),
+                ..container::Style::default()
+            }
+        }))
+    ]
+    // .into()
 }

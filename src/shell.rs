@@ -1,12 +1,12 @@
-use std::time::Instant;
 use iced::window::frames;
+use std::time::Instant;
 
 use lilt::{Animated, Easing};
 
-use iced::mouse::Interaction;
 use iced::advanced::graphics::core::font;
+use iced::mouse::Interaction;
 use iced::widget::{Container, column, container, mouse_area, row, svg, text};
-use iced::{ Background, Border, Center, Color, Element, Font, Length, Theme, Task, Subscription};
+use iced::{Background, Border, Center, Color, Element, Font, Length, Subscription, Task, Theme};
 
 use crate::icons;
 
@@ -75,7 +75,6 @@ pub enum Msg {
     Tick,
 }
 
-
 pub fn update(state: &mut ShellState, msg: Msg) {
     match msg {
         Msg::NavigateTo(item) => {
@@ -84,8 +83,7 @@ pub fn update(state: &mut ShellState, msg: Msg) {
         }
         Msg::SideMenuHovered(is_hovered) => {
             let now = Instant::now();
-            state.animated_menu_width_change
-                .transition(is_hovered, now);
+            state.animated_menu_width_change.transition(is_hovered, now);
 
             state.side_menu_hovered = is_hovered;
         }
@@ -101,12 +99,10 @@ pub fn view<'a, Message: 'a>(
     content: Element<'a, Message>,
     map_msg: impl Fn(Msg) -> Message + 'a,
 ) -> Element<'a, Message> {
-    row![ 
-        view_side_menu(state).map(map_msg), 
-        container(content)
-    ].spacing(20).into()
+    row![view_side_menu(state).map(map_msg), container(content)]
+        // .spacing(20)
+        .into()
 }
-
 
 fn view_side_menu<'a>(state: &'a ShellState) -> Element<'a, Msg> {
     let now = Instant::now();
@@ -116,13 +112,31 @@ fn view_side_menu<'a>(state: &'a ShellState) -> Element<'a, Msg> {
             column![
                 view_logo(state),
                 column![
-                    menu_item("Dashboard", icons::dashboard(), SideMenuItem::Dashboard, state, now),
-                    menu_item("Student Manager", icons::student_manager(), SideMenuItem::StudentManager, state, now),
+                    menu_item(
+                        "Dashboard",
+                        icons::dashboard(),
+                        SideMenuItem::Dashboard,
+                        state,
+                        now
+                    ),
+                    menu_item(
+                        "Student Manager",
+                        icons::student_manager(),
+                        SideMenuItem::StudentManager,
+                        state,
+                        now
+                    ),
                 ]
                 .spacing(5),
                 container(
                     column![
-                        menu_item("Settings", icons::settings(), SideMenuItem::Settings, state, now),
+                        menu_item(
+                            "Settings",
+                            icons::settings(),
+                            SideMenuItem::Settings,
+                            state,
+                            now
+                        ),
                         menu_item("Logout", icons::logout(), SideMenuItem::Logout, state, now),
                     ]
                     .spacing(5)
@@ -153,12 +167,10 @@ fn view_side_menu<'a>(state: &'a ShellState) -> Element<'a, Msg> {
             }
         }),
     )
-    .interaction(Interaction::Pointer)
     .on_enter(Msg::SideMenuHovered(true))
     .on_exit(Msg::SideMenuHovered(false))
     .into()
 }
-
 
 fn view_logo(state: &ShellState) -> Element<'_, Msg> {
     let logo_handle = if state.side_menu_hovered {
@@ -187,12 +199,9 @@ fn menu_item<'a>(
     let is_selected = |item_selected| state.selected_menu_item == item_selected;
     let is_hovered = |item_selected| state.hovered_menu_item == Some(item_selected);
 
-    let icon = svg::Svg::new(icon_handle)
-        .width(25)
-        .height(25)
-        .style(move |_theme: &Theme, _status: svg::Status| {
-            menu_icon_style(is_hovered(item_selected))
-        });
+    let icon = svg::Svg::new(icon_handle).width(25).height(25).style(
+        move |_theme: &Theme, _status: svg::Status| menu_icon_style(is_hovered(item_selected)),
+    );
 
     mouse_area(menu_item_container(
         icon,
@@ -209,7 +218,6 @@ fn menu_item<'a>(
     .on_exit(Msg::MenuItemHovered(None))
     .into()
 }
-
 
 fn menu_icon_style(is_item_hovered: bool) -> svg::Style {
     if is_item_hovered {
